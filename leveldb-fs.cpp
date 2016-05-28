@@ -249,11 +249,44 @@ static int xmp_write(const char *path, const char *buf, size_t size,
 	fprintf(l, "cur offset %s %d\n", path, cur_offset);
 	int upto = 1;
 
+	int r = offset % blocksize;
+	leveldb::ReadOptions options;
+
+	if (r != 0) {
+		char key[256];
+		snprintf(key, 256, "%s04%d", hello_path, cur_block);
+		std::string value;
+		leveldb::Status st = db->Get(options, key, &value);
+
+		value.resize(blocksize);
+
+		char * dst = (char*)value.c_str() + r;
+		upto = std::min((long)(blocksize - r), (long)size);
+		memcpy(dst, p, upto);
+		value.resize(r+upto);
+
+		fprintf(l, "write(1)key %s\n", key);
+		batch.Put(key, value);
+		write_size += upto;
+
+		p +=  upto;
+		cur_block ++;
+		cur_offset = cur_block * blocksize;
+
+		if (upto != blocksize - r) {
+			upto = 0;
+		}
+	}
+
 	while (upto > 0) {
 		char key[256];
 		snprintf(key, 256, "%s04%d", hello_path, cur_block);
 		std::string value;
 		upto = std::min(buf + size - p, (long)blocksize);
+		if (upto == 0) {
+			break;
+		}
+		fprintf(l, "write key %s\n", key);
 		batch.Put(key, leveldb::Slice(p, upto));
 		write_size += upto;
 		p += upto;
