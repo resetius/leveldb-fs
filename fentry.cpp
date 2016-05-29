@@ -76,11 +76,11 @@ int fentry::write_buf(leveldb::WriteBatch & batch,
 		cur_offset = cur_block * blocksize;
 	}
 
-	int filesize = std::max((long)this->size, (long)(offset+size));
+	int filesize = std::max((long)st.st_size, (long)(offset+size));
 
 	write(batch);
 
-	this->size = filesize;
+	st.st_size = filesize;
 
 	fprintf(l, "written %s %d\n", name.c_str(), write_size);
 
@@ -98,10 +98,12 @@ int fentry::read_buf(char * buf,
 
 	std::string base = key();
 
-	fprintf(l, "read %s <- %lu, %lu %lu\n",
-	        name.c_str(), this->size, size, offset);
+	st.st_atime = time(0);
 
-	while (cur_offset < this->size) {
+	fprintf(l, "read %s <- %lu, %lu %lu\n",
+	        name.c_str(), st.st_size, size, offset);
+
+	while (cur_offset < st.st_size) {
 		std::string key = base;
 		int tmp = htonl(cur_block);
 		key.insert(key.end(), (char*)&tmp, (char*)&tmp + sizeof(tmp));

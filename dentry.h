@@ -18,15 +18,16 @@ struct entry;
 typedef boost::unordered_map<std::string, boost::shared_ptr<entry> > entries_t;
 
 struct entry: public boost::enable_shared_from_this<entry> {
+	struct stat st;
+
 	uuid_t inode;
 	std::string name;
 	entries_t entries;
 
-	entry(const std::string & name): name(name) {}
+	entry(const std::string & name);
 	virtual ~entry() {}
-	virtual bool read() = 0;
-	virtual void write(leveldb::WriteBatch & batch) = 0;
-	virtual std::string row();
+	virtual bool read();
+	virtual void write(leveldb::WriteBatch & batch);
 	virtual std::string key() = 0;
 
 	boost::shared_ptr<entry> find(const std::string & path);
@@ -47,15 +48,8 @@ struct entry: public boost::enable_shared_from_this<entry> {
 };
 
 struct fentry: public entry {
-	size_t size;
-
-	fentry(const std::string & name): entry(name) {}
+	fentry(const std::string & name);
 	
-	bool read() {
-		return false;
-	}
-
-	void write(leveldb::WriteBatch & batch);
 	int write_buf(leveldb::WriteBatch & batch,
 	              const char * buf,
 	              off_t size,
@@ -70,8 +64,6 @@ struct fentry: public entry {
 
 struct dentry: public entry {
 	dentry(const std::string & name);
-	bool read();
-	void write(leveldb::WriteBatch & batch);
 	std::string key();
 	void fillstat(struct stat * s);
 };

@@ -1,0 +1,23 @@
+/* -*- Mode: C++; tab-width: 2; indent-tabs-mode: nil; c-basic-offset: 2 -*- */
+/* vim: set ts=2 sw=2 et: */
+
+package proto;
+
+message entry {
+  message child {
+    optional uint32 mode = 1;    /* protection */
+    optional bytes ino = 2;
+    optional string name = 3;
+  }
+  
+  optional uint32    mode = 2;    /* protection */
+  optional uint32    nlink = 3;   /* number of hard links */
+  optional uint32    uid = 4;     /* user ID of owner */
+  optional uint32    gid = 5;     /* group ID of owner */
+  optional uint64    size = 6;    /* total size, in bytes */
+  optional uint64    atime = 7;   /* time of last access */
+  optional uint64    mtime = 8;   /* time of last modification */
+  optional uint64    ctime = 9;   /* time of last status change */
+
+  repeated child children = 100;
+}

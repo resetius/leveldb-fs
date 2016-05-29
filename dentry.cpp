@@ -1,6 +1,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <time.h>
+
+#include "messages.pb.h"
 
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"
@@ -10,8 +13,18 @@
 extern leveldb::DB* db;
 extern FILE * l;
 
+entry::entry(const std::string & name): name(name)
+{
+	time_t now = time(0);
+	memset(&st, 0, sizeof(st));
+	st.st_atime = now;
+	st.st_ctime = now;
+	st.st_mtime = now;
+}
+
 dentry::dentry(const std::string & name): entry(name)
 {
+	st.st_mode = S_IFDIR | 0755;
 	if (name.empty()) {
 		memset(inode, 0, sizeof(inode));
 	} else {
@@ -20,91 +33,66 @@ dentry::dentry(const std::string & name): entry(name)
 	}
 }
 
-bool dentry::read()
+fentry::fentry(const std::string & name): entry(name)
+{
+	st.st_mode = S_IFREG | 0666;
+}
+
+bool entry::read()
 {
 	std::string value;
 	leveldb::ReadOptions options;
-	leveldb::Status st = db->Get(options, key(), &value);
-	if (!st.ok()) {
+	leveldb::Status status = db->Get(options, key(), &value);
+	if (!status.ok()) {
+		fprintf(l, "key not found '%s'\n", name.c_str());
 		return false;
 	}
 
+	proto::entry e;
+
 	fprintf(l, "read dentry '%s' -> %lu\n", name.c_str(), value.size());
 
-	const char * p = value.c_str();
-	const char * pe = p + value.size();
-	while (p < pe) {
-		uuid_t inode;
-		int size;
-		std::string name;
+	if (!e.ParseFromString(value)) {
+		// TODO: error;
+		fprintf(l, "cannot parse proto '%s'\n", name.c_str());
+		return false;
+	}
 
-		char type = *p++;
+	if (e.has_ctime()) {
+		st.st_ctime = e.ctime();
+	}
+	if (e.has_atime()) {
+		st.st_atime = e.atime();
+	}
+	if (e.has_mtime()) {
+		st.st_mtime = e.mtime();
+	}
 
-		if (!(type == 'd' || type == 'f')) {
-			fprintf(l, "unknown type %c\n", type);
-			return false;
+	for (int i = 0; i < e.children_size(); ++i) {
+		const proto::entry_child & c = e.children(i);
+		std::string name = c.name();
+		entry * d = 0;
+		if (c.mode() & S_IFDIR) {
+			d = new dentry(name);
+		} else if (c.mode() & S_IFREG) {
+			d = new fentry(name);
 		}
 
-		fprintf(l, "read entry of type %c\n", type);
-		
-		memcpy(inode, p, sizeof(inode));
-		p += sizeof(inode);
-		memcpy(&size, p, sizeof(size));
-		p += sizeof(size);
-		name.reserve(size);
-		name.insert(name.end(), p, p + size);
-		p += size;
-
-		fprintf(l, "read entry of name '%s'\n", name.c_str());
-
-		switch (type) {
-		case 'd':
-		{
-			dentry * d = new dentry(name);
-			memcpy(d->inode, inode, sizeof(inode)); // TODO: ugly
-			if (!d->read()) {
+		if (d) {
+			std::string inode = c.ino();
+			memcpy(d->inode, inode.c_str(), sizeof(d->inode)); //TODO: ugly
+			if (d->read()) {
+				entries[name] = boost::shared_ptr<entry>(d);
+			} else {
 				// TODO: error
-				fprintf(l, "cannot read child entry %s\n", name.c_str());
+				// TODO: make broken entry
+				fprintf(l, "cannot read '%s'\n", name.c_str());
 				return false;
 			}
-			entries[name] = boost::shared_ptr<entry>(d);
-			
-			break;
-		}
-		case 'f':
-		{
-			fentry * f = new fentry(name);
-			memcpy(f->inode, inode, sizeof(inode)); // TODO: ugly
-			entries[name] = boost::shared_ptr<entry>(f);
-			break;
-		}
-		default:
-			// TODO: error;
-			fprintf(l, "unknown error\n");
-			return false;
 		}
 	}
 
 	return true;
-}
-
-std::string entry::row()
-{
-	std::string ret;
-	std::string k = key();
-	ret.insert(ret.end(), k.begin(), k.end());
-	
-	int size = name.size();
-	ret.insert(ret.end(), (char*)&size, (char*)&size + sizeof(size));
-	ret.insert(ret.end(), name.begin(), name.end());
-	return ret;
-}
-
-void fentry::write(leveldb::WriteBatch & batch)
-{
-	std::string value;
-	value.insert(value.end(), (char*)&size, (char*)&size + sizeof(size));
-	batch.Put(key(), value);
 }
 
 std::string fentry::key()
@@ -123,15 +111,30 @@ std::string dentry::key()
 	return std::string(k, sizeof(k));
 }
 
-void dentry::write(leveldb::WriteBatch & batch)
+void entry::write(leveldb::WriteBatch & batch)
 {
 	std::string value;
 
+	time_t now = time(0);
+
+	st.st_mtime = now;
+	st.st_atime = now;
+	
+	proto::entry e;
+	e.set_mode(st.st_mode);
+	e.set_mtime(st.st_mtime);
+	e.set_ctime(st.st_ctime);
+
 	for (entries_t::iterator it = entries.begin(); it != entries.end(); ++it) {
-		value += it->second->row();
+		proto::entry_child * c = e.add_children();
+		c->set_mode(it->second->st.st_mode);
+		c->set_ino(it->second->inode, sizeof(it->second->inode));
+		c->set_name(it->second->name);
 	}
 
-	fprintf(l, "writing dentry '%s' -> %lu\n", name.c_str(), value.size());
+	fprintf(l, "writing entry '%s' -> %lu\n", name.c_str(), value.size());
+
+	e.SerializeToString(&value); // TODO: check error
 
 	batch.Put(key(), value);
 }
@@ -155,16 +158,12 @@ boost::shared_ptr<entry> entry::find(const std::string & path)
 
 void fentry::fillstat(struct stat * s)
 {
-	s->st_mode = S_IFREG | 0666;
-	s->st_nlink = 1;
-	s->st_size = size;
+	memcpy(s, &st, sizeof(st));
 	memcpy(&s->st_ino, inode, sizeof(s->st_ino)); 
 }
 
 void dentry::fillstat(struct stat * s)
 {
-	s->st_mode = S_IFDIR | 0755;
-	s->st_nlink = 2;
-	s->st_size = 4096;
+	memcpy(s, &st, sizeof(st));
 	memcpy(&s->st_ino, inode, sizeof(s->st_ino)); 
 }
