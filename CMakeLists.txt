@@ -10,7 +10,7 @@ find_package(PkgConfig)
 
 pkg_search_module(FUSE REQUIRED fuse)
 
-add_executable(leveldb-fs leveldb-fs.cpp dentry.cpp dentry.h)
+add_executable(leveldb-fs leveldb-fs.cpp dentry.cpp dentry.h fentry.cpp)
 
 target_link_libraries(leveldb-fs
   ${FUSE_LIBRARIES} leveldb uuid)

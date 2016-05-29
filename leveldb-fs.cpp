@@ -29,25 +29,42 @@
 #include <dirent.h>
 #include <errno.h>
 #include <sys/time.h>
-#ifdef HAVE_SETXATTR
-#include <sys/xattr.h>
-#endif
 
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"
 
 #include <string>
 #include <algorithm>
+#include <vector>
 #include <boost/unordered_map.hpp>
 
 #include "dentry.h"
 
 static const char *hello_path = "/hello";
 
+int maxhandles=1000000;
 int blocksize=4*1024;
 leveldb::DB* db;
 
 boost::shared_ptr<dentry> root;
+// TODO: remove while writing?
+// remove algo proposal:
+// 1. mark removed inode in superblock
+// 2. in destructor batch:
+//   2.1 remove blocks
+//   2.2 remove inode
+//   2.3 unmark inode
+// 3. on powerfailure repeat from 2
+//
+// truncate algo proposal:
+// 1. mark new size in superblock
+// 2. batch
+//   2.1 remove/update blocks
+//   2.2 update inode
+//   2.3 unmark
+// 3. on powerfailure repeat from 2
+
+std::vector<boost::shared_ptr<entry> > handles;
 
 FILE * l = fopen("fuselog.log", "a");;
 
@@ -67,7 +84,7 @@ int filesize=0;
 // inode: i,number
 // block: b,inumber,bnumber
 
-static int xmp_getattr(const char *p, struct stat *stbuf)
+static int ldbfs_getattr(const char *p, struct stat *stbuf)
 {
 	int res = 0;
 
@@ -215,7 +232,7 @@ static int xmp_chown(const char *path, uid_t uid, gid_t gid)
 	return 0;
 }
 
-static int xmp_truncate(const char *path, off_t size)
+static int ldbfs_truncate(const char *path, off_t size)
 {
 	int res;
 
@@ -237,130 +254,109 @@ static int xmp_utimens(const char *path, const struct timespec ts[2])
 }
 #endif
 
-static int xmp_open(const char *path, struct fuse_file_info *fi)
+static int ldbfs_create(const char *p, mode_t mode,
+                        struct fuse_file_info *fi)
 {
-    if (strcmp(path, hello_path) != 0)
-        return -ENOENT;
-// TODO:check flags
-//    if ((fi->flags & 3) != O_RDONLY)
-//        return -EACCES;
+	fprintf(l, "create '%s' -> %lu\n", p, fi->fh);
+	std::string path = p+1;
+	boost::shared_ptr<entry> d(root->find(path));
+	if (d) {
+		// already exists
+		return -1;
+	}
+
+	boost::shared_ptr<entry> dst;
+	size_t pos = path.rfind("/");
+	std::string name;
+
+	if (pos == std::string::npos) {
+		fprintf(l, "root parent %s\n", p);
+		dst = root;
+		name = path;
+	} else {
+		fprintf(l, "non root parent %s\n", p);
+		dst = root->find(path.substr(0, pos));
+		name = path.substr(pos+1);
+	}
+
+	if (!dst) {
+		fprintf(l, "cannot find dst %s\n", p);
+		return -1; // parent not exists: TODO: check error code;
+	}
+
+	boost::shared_ptr<entry> r(new fentry(name));
+	dst->entries[name] = r;
+
+	leveldb::WriteOptions writeOptions;
+	leveldb::WriteBatch batch;
+
+	writeOptions.sync = true;
+	r->write(batch);
+	dst->write(batch);
+	db->Write(writeOptions, &batch); // TODO: check status
+
+	handles[fi->fh] = r;
 
 	return 0;
 }
 
-static int xmp_read(const char *path, char *buf, size_t size, off_t offset,
-		    struct fuse_file_info *fi)
+static int ldbfs_open(const char *p, struct fuse_file_info *fi)
 {
-	/*
-    size_t len;
-    (void) fi;
-    if(strcmp(path, hello_path) != 0)
-        return -ENOENT;
+	fprintf(l, "open '%s' -> %lu\n", p, fi->fh);
 
-    len = strlen(hello_str);
-    if (offset < len) {
-        if (offset + size > len)
-            size = len - offset;
-        memcpy(buf, hello_str + offset, size);
-    } else
-        size = 0;
-
-	return size;
-	*/
-
-	fprintf(l, "read %s\n", path);
-
-	int cur_block  = offset / blocksize;
-	int cur_offset = offset;
-	int read_size = 0;
-	char * p = buf;
-	leveldb::ReadOptions options;
-	while (cur_offset < filesize) {
-		char key[256];
-		snprintf(key, 256, "%s04%d", hello_path, cur_block);
-		std::string value;
-		leveldb::Status st = db->Get(options, key, &value);
-		if (!st.ok()) {
-			fprintf(l, "cannot read key %s\n", key);
-			break;
-		}
-		fprintf(l, "read key %s\n", key);
-		int upto = std::min(buf + size - p, (long)value.size());
-		read_size += upto;
-		memcpy(p, value.c_str() + cur_offset % blocksize, value.size());
-		p += upto;
-		cur_block ++;
-		cur_offset = cur_block * blocksize;
+	boost::shared_ptr<entry> d(root->find(p+1));
+	if (!d) {
+		return -1;
 	}
 
-	return read_size;
+	handles[fi->fh] = d;
+
+	return 0;
 }
 
-static int xmp_write(const char *path, const char *buf, size_t size,
-		     off_t offset, struct fuse_file_info *fi)
+static int ldbfs_release(const char *path, struct fuse_file_info *fi)
 {
-	// TODO: rewrite first block
+	fprintf(l, "release '%s' -> %lu\n", path, fi->fh);
+	boost::shared_ptr<entry> r(handles[fi->fh]);
+	if (!r) {
+		return -1;
+	}
+
+	handles[fi->fh].reset();
+
+	return 0;
+}
+
+static int ldbfs_read(
+	const char *path, char *buf, size_t size, off_t offset,
+	struct fuse_file_info *fi)
+{
+	fprintf(l, "read %s\n", path);
+
+	boost::shared_ptr<entry> d(handles[fi->fh]);
+	if (!d) {
+		return -1;
+	}
+
+	return d->read_buf(buf, size, offset);	
+}
+
+static int ldbfs_write(
+	const char *path, const char *buf, size_t size,
+	off_t offset, struct fuse_file_info *fi)
+{
 	fprintf(l, "write %s %lu %lu\n", path, size, offset);
-	int cur_block  = offset / blocksize;
-	int cur_offset = offset;
-	int write_size = 0;
-	const char * p = buf;
 
-	leveldb::WriteOptions writeOptions;
+	boost::shared_ptr<entry> d(handles[fi->fh]);
+	if (!d) {
+		return -1;
+	}
+
+	leveldb::WriteOptions options;
 	leveldb::WriteBatch batch;
-	fprintf(l, "cur offset %s %d\n", path, cur_offset);
-	int upto = 1;
+	int write_size = d->write_buf(batch, buf, size, offset);
 
-	int r = offset % blocksize;
-	leveldb::ReadOptions options;
-
-	if (r != 0) {
-		char key[256];
-		snprintf(key, 256, "%s04%d", hello_path, cur_block);
-		std::string value;
-		leveldb::Status st = db->Get(options, key, &value);
-
-		value.resize(blocksize);
-
-		char * dst = (char*)value.c_str() + r;
-		upto = std::min((long)(blocksize - r), (long)size);
-		memcpy(dst, p, upto);
-		value.resize(r+upto);
-
-		fprintf(l, "write(1)key %s\n", key);
-		batch.Put(key, value);
-		write_size += upto;
-
-		p +=  upto;
-		cur_block ++;
-		cur_offset = cur_block * blocksize;
-
-		if (upto != blocksize - r) {
-			upto = 0;
-		}
-	}
-
-	while (upto > 0) {
-		char key[256];
-		snprintf(key, 256, "%s04%d", hello_path, cur_block);
-		std::string value;
-		upto = std::min(buf + size - p, (long)blocksize);
-		if (upto == 0) {
-			break;
-		}
-		fprintf(l, "write key %s\n", key);
-		batch.Put(key, leveldb::Slice(p, upto));
-		write_size += upto;
-		p += upto;
-		cur_block ++;
-		cur_offset = cur_block * blocksize;
-	}
-
-	db->Write(writeOptions, &batch);
-
-	filesize = std::max((long)filesize, (long)(offset+size));
-
-	fprintf(l, "written %s %d\n", path, write_size);
+	db->Write(options, &batch); //TODO: check status
 
 	return write_size;
 }
@@ -390,7 +386,7 @@ static int xmp_fsync(const char *path, int isdatasync,
 static struct fuse_operations xmp_oper;
 #if 0
 = {
-	.getattr	= xmp_getattr,
+	.getattr	= ldbfs_getattr,
 //	.access		= xmp_access,
 	.readdir	= ldbfs_readdir,
 //	.mkdir		= xmp_mkdir,
@@ -413,14 +409,16 @@ static struct fuse_operations xmp_oper;
 
 int main(int argc, char *argv[])
 {
-	xmp_oper.getattr = xmp_getattr;
+	xmp_oper.getattr = ldbfs_getattr;
 	xmp_oper.readdir = ldbfs_readdir;
-	xmp_oper.open = xmp_open;
-	xmp_oper.read = xmp_read;
-	xmp_oper.write = xmp_write;
+	xmp_oper.open = ldbfs_open;
+	xmp_oper.read = ldbfs_read;
+	xmp_oper.write = ldbfs_write;
 	xmp_oper.access = xmp_access;
-	xmp_oper.truncate = xmp_truncate;
+	xmp_oper.truncate = ldbfs_truncate;
+	xmp_oper.create = ldbfs_create;
 	xmp_oper.mkdir = ldbfs_mkdir;
+	xmp_oper.release = ldbfs_release;
 
 	umask(0);
 
@@ -428,6 +426,7 @@ int main(int argc, char *argv[])
     options.create_if_missing = true;
     options.compression = leveldb::kNoCompression;
 
+    handles.resize(maxhandles);
     
     leveldb::WriteOptions wo;
     wo.sync = true;

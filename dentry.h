@@ -32,6 +32,18 @@ struct entry: public boost::enable_shared_from_this<entry> {
 	boost::shared_ptr<entry> find(const std::string & path);
 
 	virtual void fillstat(struct stat * s) = 0;
+	virtual int write_buf(leveldb::WriteBatch & batch,
+	                      const char * buf,
+	                      off_t size, size_t offset)
+	{
+		return 0;
+	}
+
+	virtual int read_buf(char * buf,
+	                     off_t size, size_t offset)
+	{
+		return 0;
+	}
 };
 
 struct fentry: public entry {
@@ -44,6 +56,14 @@ struct fentry: public entry {
 	}
 
 	void write(leveldb::WriteBatch & batch);
+	int write_buf(leveldb::WriteBatch & batch,
+	              const char * buf,
+	              off_t size,
+	              size_t offset);
+
+	int read_buf(char * buf,
+	             off_t size, size_t offset);
+
 	std::string key();
 	void fillstat(struct stat * s);
 };
