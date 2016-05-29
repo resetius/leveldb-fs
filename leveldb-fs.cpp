@@ -40,28 +40,47 @@
 #include <algorithm>
 #include <boost/unordered_map.hpp>
 
+#include "dentry.h"
+
 static const char *hello_path = "/hello";
 
 int blocksize=4*1024;
 leveldb::DB* db;
-FILE * l = fopen("fuselog.log", "a");
+
+boost::shared_ptr<dentry> root;
+
+FILE * l = fopen("fuselog.log", "a");;
 
 int filesize=0;
 
-static int xmp_getattr(const char *path, struct stat *stbuf)
+// dentry -> [type,entry]
+// (f,entry) -> (inode,name)
+// (d,entry) -> name
+// inode -> filesize
+
+// create file:
+// append new (inode,name) into direntry
+// create dir:
+// new direntry
+
+// direntry: d,path
+// inode: i,number
+// block: b,inumber,bnumber
+
+static int xmp_getattr(const char *p, struct stat *stbuf)
 {
 	int res = 0;
-    memset(stbuf, 0, sizeof(struct stat));
-    if (strcmp(path, "/") == 0) {
-        stbuf->st_mode = S_IFDIR | 0755;
-        stbuf->st_nlink = 2;
-    } else if (strcmp(path, hello_path) == 0) {
-        stbuf->st_mode = S_IFREG | 0666;
-        stbuf->st_nlink = 1;
-        stbuf->st_size = filesize;
-    } else
-        res = -ENOENT;
 
+	fprintf(l, "getattr %s\n", p);
+    memset(stbuf, 0, sizeof(struct stat));
+
+	boost::shared_ptr<entry> e = root->find(p+1);
+	if (!e) {
+		res = -ENOENT;
+	} else {
+		e->fillstat(stbuf);
+	}
+		
 	return res;
 }
 
@@ -70,30 +89,73 @@ static int xmp_access(const char *path, int mask)
 	return 0;
 }
 
-static int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
-		       off_t offset, struct fuse_file_info *fi)
+static int ldbfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+                         off_t offset, struct fuse_file_info *fi)
 {
-    (void) offset;
-    (void) fi;
+	(void) offset;
+	(void) fi;
 
 	fprintf(l, "readdir %s\n", path);
-    if (strcmp(path, "/") != 0)
-        return -ENOENT;
 
-    filler(buf, ".", NULL, 0);
-    filler(buf, "..", NULL, 0);
-    filler(buf, hello_path + 1, NULL, 0);
+	boost::shared_ptr<entry> d(root->find(path+1));
+	
+	if (!d) {
+		return -ENOENT;
+	}
+
+	filler(buf, ".", NULL, 0);
+	filler(buf, "..", NULL, 0);
+
+	for (entries_t::iterator it = d->entries.begin();
+	     it != d->entries.end(); ++it)
+	{
+		filler(buf, it->second->name.c_str(), NULL, 0);
+	}
 
 	return 0;
 }
 
-static int xmp_mkdir(const char *path, mode_t mode)
+static int ldbfs_mkdir(const char *p, mode_t mode)
 {
-	int res;
+	std::string path(p+1);
+	std::string name;
 
-	res = mkdir(path, mode);
-	if (res == -1)
-		return -errno;
+	fprintf(l, "mkdir %s\n", p);
+
+	if (root->find(path)) {
+		fprintf(l, "already exists %s\n", p);
+		return -1; // already exists. TODO: check error code
+	}
+
+	boost::shared_ptr<entry> dst;
+	size_t pos = path.rfind("/");
+	if (pos == std::string::npos) {
+		fprintf(l, "root parent %s\n", p);
+		dst = root;
+		name = path;
+	} else {
+		fprintf(l, "non root parent %s\n", p);
+		dst = root->find(path.substr(0, pos));
+		name = path.substr(pos+1);
+	}
+
+	if (!dst) {
+		fprintf(l, "cannot find dst %s\n", p);
+		return -1; // parent not exists: TODO: check error code;
+	}
+
+	fprintf(l, "parent: '%s'/'%s'\n", dst->name.c_str(), name.c_str());
+
+	boost::shared_ptr<entry> r(new dentry(name));
+	dst->entries[name] = r;
+
+	leveldb::WriteOptions writeOptions;
+	leveldb::WriteBatch batch;
+
+	writeOptions.sync = true;
+	r->write(batch);
+	dst->write(batch);
+	db->Write(writeOptions, &batch); // TODO: check status
 
 	return 0;
 }
@@ -330,7 +392,7 @@ static struct fuse_operations xmp_oper;
 = {
 	.getattr	= xmp_getattr,
 //	.access		= xmp_access,
-	.readdir	= xmp_readdir,
+	.readdir	= ldbfs_readdir,
 //	.mkdir		= xmp_mkdir,
 //	.unlink		= xmp_unlink,
 //	.rmdir		= xmp_rmdir,
@@ -351,20 +413,36 @@ static struct fuse_operations xmp_oper;
 
 int main(int argc, char *argv[])
 {
-	leveldb::Options options;
-    options.create_if_missing = true;
-    options.compression = leveldb::kNoCompression;
-//    options.write_buffer_size = 4*1024*1024;
-	leveldb::Status status = leveldb::DB::Open(options, "./testdb-fs", &db);
 	xmp_oper.getattr = xmp_getattr;
-	xmp_oper.readdir = xmp_readdir;
+	xmp_oper.readdir = ldbfs_readdir;
 	xmp_oper.open = xmp_open;
 	xmp_oper.read = xmp_read;
 	xmp_oper.write = xmp_write;
 	xmp_oper.access = xmp_access;
 	xmp_oper.truncate = xmp_truncate;
-	setbuf(l, 0);
+	xmp_oper.mkdir = ldbfs_mkdir;
+
 	umask(0);
+
+	leveldb::Options options;
+    options.create_if_missing = true;
+    options.compression = leveldb::kNoCompression;
+
+    
+    leveldb::WriteOptions wo;
+    wo.sync = true;
+    
+//    options.write_buffer_size = 4*1024*1024;
+	leveldb::Status status = leveldb::DB::Open(options, "./testdb-fs", &db);
+
+	root.reset(new dentry(""));
+	if (!root->read()) {
+		leveldb::WriteBatch batch;
+		root->write(batch);
+		db->Write(wo, &batch);
+	}
+	
+	setbuf(l, 0);
+
 	return fuse_main(argc, argv, &xmp_oper, NULL);
 }
-
