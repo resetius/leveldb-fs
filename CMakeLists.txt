@@ -25,6 +25,11 @@ add_executable(leveldb-fs
   ${CMAKE_CURRENT_BINARY_DIR}/messages.pb.cc
   )
 
+add_executable(test-writer test-writer.cpp)
+
+target_link_libraries(test-writer
+  pthread)
+
 target_link_libraries(leveldb-fs
   ${FUSE_LIBRARIES} leveldb uuid protobuf)
 target_include_directories(leveldb-fs PUBLIC
