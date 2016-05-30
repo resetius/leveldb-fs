@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <vector>
 #include <boost/unordered_map.hpp>
+#include <boost/unordered_set.hpp>
 
 #include "dentry.h"
 
@@ -55,6 +56,7 @@ boost::shared_ptr<dentry> root;
 // 3. on powerfailure repeat from 2
 
 std::vector<boost::shared_ptr<entry> > handles;
+boost::unordered_set<uint64_t> allocated_handles;
 
 FILE * l = 0;
 
@@ -285,8 +287,22 @@ static int ldbfs_rmdir(const char *p)
 	return 0;
 }
 
-static int ldbfs_rename(const char *from, const char *to)
+static int ldbfs_rename(const char *f, const char *t)
 {
+	std::string from(f+1);
+	std::string to(t+1);
+
+	boost::shared_ptr<entry> src = root->find(from);
+	if (!src) {
+		return -ENOENT;
+	}
+
+	boost::shared_ptr<entry> dst = root->find(to);
+
+	if (!dst) {
+		// create new
+	}
+
 	return -1;
 }
 
@@ -324,16 +340,31 @@ static int ldbfs_utime(const char *path, struct utimbuf * t)
 	return 0;
 }
 
+uint64_t allocate_handle(struct fuse_file_info *fi)
+{
+	// TODO: lock
+	uint64_t fh = 0;
+	for (; allocated_handles.find(fh) != allocated_handles.end(); ++fh);
+
+	allocated_handles.insert(fh);
+	fi->fh = fh;
+	return fh;
+}
+
+
 static int ldbfs_create(const char *p, mode_t mode,
                         struct fuse_file_info *fi)
 {
-	fprintf(l, "create '%s' -> %lu\n", p, fi->fh);
 	std::string path = p+1;
 	boost::shared_ptr<entry> d(root->find(path));
 	if (d) {
 		// already exists
 		return -1;
 	}
+
+	uint64_t fh = allocate_handle(fi);
+	
+	fprintf(l, "create '%s' -> %lu\n", p, fh);
 
 	boost::shared_ptr<entry> dst;
 	size_t pos = path.rfind("/");
@@ -365,21 +396,23 @@ static int ldbfs_create(const char *p, mode_t mode,
 	dst->write(batch);
 	db->Write(writeOptions, &batch); // TODO: check status
 
-	handles[fi->fh] = r;
+	handles[fh] = r;
 
 	return 0;
 }
 
 static int ldbfs_open(const char *p, struct fuse_file_info *fi)
 {
-	fprintf(l, "open '%s' -> %lu\n", p, fi->fh);
-
 	boost::shared_ptr<entry> d(root->find(p+1));
 	if (!d) {
 		return -1;
 	}
 
-	handles[fi->fh] = d;
+	uint64_t fh = allocate_handle(fi);
+
+	fprintf(l, "open '%s' -> %lu\n", p, fh);
+
+	handles[fh] = d;
 
 	return 0;
 }
@@ -392,6 +425,7 @@ static int ldbfs_release(const char *path, struct fuse_file_info *fi)
 		return -1;
 	}
 
+	allocated_handles.erase(fi->fh);
 	handles[fi->fh].reset();
 
 	return 0;
