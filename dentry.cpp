@@ -191,3 +191,8 @@ void dentry::fillstat(struct stat * s)
 	memcpy(s, &st, sizeof(st));
 	memcpy(&s->st_ino, inode, sizeof(s->st_ino)); 
 }
+
+void dentry::remove(leveldb::WriteBatch & batch)
+{
+	batch.Delete(key());
+}

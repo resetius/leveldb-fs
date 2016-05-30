@@ -253,8 +253,35 @@ static int ldbfs_unlink(const char *p)
 	return 0;
 }
 
-static int ldbfs_rmdir(const char *path)
+static int ldbfs_rmdir(const char *p)
 {
+	fprintf(l, "rmdir %s\n", p);
+	std::string path(p+1);
+
+	boost::shared_ptr<entry> e = root->find(p+1);
+	if (!e) {
+		return -ENOENT;
+	}
+
+	boost::unique_lock<boost::mutex> scoped_lock(e->mutex);
+	if (!e->entries.empty()) {
+		return -1;
+	}
+
+	leveldb::WriteOptions options;
+	leveldb::WriteBatch batch;
+	options.sync = true;
+
+	e->remove(batch);
+	leveldb::Status status = db->Write(options, &batch); //TODO: check status
+
+
+	if (!status.ok()) {
+		fprintf(l, "cannot rmdir %s %s\n",
+		        p, status.ToString().c_str());
+		return -1;
+	}
+
 	return 0;
 }
 

@@ -76,4 +76,5 @@ struct dentry: public entry {
 	dentry(const std::string & name);
 	std::string key();
 	void fillstat(struct stat * s);
+	void remove(leveldb::WriteBatch & batch);
 };
