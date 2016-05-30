@@ -138,4 +138,37 @@ int fentry::read_buf(char * buf,
 	return read_size;
 }
 
+void fentry::remove(leveldb::WriteBatch & batch)
+{
+	size_t offset = 0;
+	int cur_block  = offset / blocksize;
+	int cur_offset = offset;
+
+	std::string base = key();
+
+	while (cur_offset < st.st_size) {
+		std::string key = base;
+		int tmp = htonl(cur_block);
+		key.insert(key.end(), (char*)&tmp, (char*)&tmp + sizeof(tmp));
+
+		batch.Delete(key);
+
+		cur_block ++;
+		cur_offset = cur_block * blocksize;
+	}
+}
+
+void fentry::truncate(leveldb::WriteBatch & batch, size_t new_size)
+{
+	if (new_size > st.st_size) {
+		return;
+	}
+
+
+	size_t offset = new_size;
+	int cur_block  = offset / blocksize;
+	int cur_offset = offset;
+
+	// rewrite first block and delete last
+}
 

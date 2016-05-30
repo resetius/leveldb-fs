@@ -194,14 +194,68 @@ static int ldbfs_mkdir(const char *p, mode_t mode)
 	return 0;
 }
 
-static int ldbfs_unlink(const char *path)
+static int ldbfs_unlink(const char *p)
 {
-	return -1;
+	fprintf(l, "unlink %s\n", p);
+	std::string path(p+1);
+
+	boost::shared_ptr<entry> e = root->find(p+1);
+	if (!e) {
+		return -ENOENT;
+	}
+
+	boost::shared_ptr<entry> dst;
+	size_t pos = path.rfind("/");
+	if (pos == std::string::npos) {
+		fprintf(l, "root parent %s\n", p);
+		dst = root;
+	} else {
+		fprintf(l, "non root parent %s\n", p);
+		dst = root->find(path.substr(0, pos));
+	}
+
+	if (!dst) {
+		fprintf(l, "cannot find dst %s\n", p);
+		return -1; // parent not exists: TODO: check error code;
+	}
+
+	// lock dst
+
+	boost::mutex * m1 = &e->mutex;
+	boost::mutex * m2 = &dst->mutex;
+
+	assert(m1 != m2);
+
+	if (m2 > m1) {
+		std::swap(m1, m2);
+	}
+
+	boost::unique_lock<boost::mutex> scoped_lock1(*m1);
+	boost::unique_lock<boost::mutex> scoped_lock2(*m2);
+
+	leveldb::WriteOptions options;
+	leveldb::WriteBatch batch;
+	options.sync = true;
+
+	e->remove(batch);
+	dst->entries.erase(e->name);
+	dst->write(batch);
+
+	leveldb::Status status = db->Write(options, &batch); //TODO: check status
+
+
+	if (!status.ok()) {
+		fprintf(l, "cannot remove %s %s\n",
+		        p, status.ToString().c_str());
+		return -1;
+	}
+
+	return 0;
 }
 
 static int ldbfs_rmdir(const char *path)
 {
-	return -1;
+	return 0;
 }
 
 static int ldbfs_rename(const char *from, const char *to)
@@ -209,15 +263,38 @@ static int ldbfs_rename(const char *from, const char *to)
 	return -1;
 }
 
-static int ldbfs_truncate(const char *path, off_t size)
+static int ldbfs_truncate(const char *p, off_t size)
 {
-// TODO:
+	fprintf(l, "truncate %s\n", p);
+	std::string path(p+1);
+
+	boost::shared_ptr<entry> e = root->find(p+1);
+	if (!e) {
+		return -ENOENT;
+	}
+
+	boost::unique_lock<boost::mutex> scoped_lock(e->mutex);
+
+	leveldb::WriteOptions options;
+	leveldb::WriteBatch batch;
+	options.sync = true;
+
+	e->truncate(batch, size);
+	leveldb::Status status = db->Write(options, &batch); //TODO: check status
+
+
+	if (!status.ok()) {
+		fprintf(l, "cannot truncate %s %s\n",
+		        p, status.ToString().c_str());
+		return -1;
+	}
+
 	return 0;
 }
 
 static int ldbfs_utime(const char *path, struct utimbuf * t)
 {
-	return -1;
+	return 0;
 }
 
 static int ldbfs_create(const char *p, mode_t mode,
@@ -304,7 +381,7 @@ static int ldbfs_read(
 		return -1;
 	}
 
-//	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
+	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
 
 	return d->read_buf(buf, size, offset);	
 }
@@ -320,7 +397,7 @@ static int ldbfs_write(
 		return -1;
 	}
 
-//	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
+	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
 
 	leveldb::WriteOptions options;
 	leveldb::WriteBatch batch;

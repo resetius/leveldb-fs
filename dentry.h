@@ -48,6 +48,9 @@ struct entry: public boost::enable_shared_from_this<entry> {
 		return 0;
 	}
 
+	virtual void remove(leveldb::WriteBatch & batch) {}
+	virtual void truncate(leveldb::WriteBatch & batch, size_t new_size) {}
+
 	static std::string stringify(const std::string & key);
 };
 
@@ -61,6 +64,9 @@ struct fentry: public entry {
 
 	int read_buf(char * buf,
 	             off_t size, size_t offset);
+
+	void remove(leveldb::WriteBatch & batch);
+	void truncate(leveldb::WriteBatch & batch, size_t new_size);
 
 	std::string key();
 	void fillstat(struct stat * s);
