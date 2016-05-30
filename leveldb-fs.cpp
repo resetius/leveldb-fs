@@ -297,13 +297,65 @@ static int ldbfs_rename(const char *f, const char *t)
 		return -ENOENT;
 	}
 
+	leveldb::WriteOptions options;
+	leveldb::WriteBatch batch;
+	options.sync = true;
+
 	boost::shared_ptr<entry> dst = root->find(to);
 
-	if (!dst) {
-		// create new
+	boost::shared_ptr<entry> src_parent;
+	size_t pos = from.rfind("/");
+	if (pos == std::string::npos) {
+		fprintf(l, "root parent %s\n", f);
+		src_parent = root;
+	} else {
+		fprintf(l, "non root parent %s\n", f);
+		src_parent = root->find(from.substr(0, pos));
+	}
+	boost::shared_ptr<entry> dst_parent;
+	pos = to.rfind("/");
+	std::string new_name;
+	if (pos == std::string::npos) {
+		fprintf(l, "root parent %s\n", t);
+		dst_parent = root;
+		new_name = to;
+	} else {
+		fprintf(l, "non root parent %s\n", t);
+		dst_parent = root->find(to.substr(0, pos));
+		new_name = to.substr(pos+1, 0);
 	}
 
-	return -1;
+	if (!src_parent || !dst_parent) {
+		return -1;
+	}
+
+	if (dst) {
+		if (dst == src) {
+			return -1;
+		}
+		dst->remove(batch);
+		dst_parent->entries.erase(dst->name);
+	}
+
+	// TODO: locks
+
+	src_parent->entries.erase(src->name);
+	src->name = new_name;
+	dst_parent->entries[new_name] = src;
+
+	src_parent->write(batch);
+	dst_parent->write(batch);
+	leveldb::Status status = db->Write(options, &batch); //TODO: check status
+
+	if (!status.ok()) {
+		fprintf(l, "cannot rename %s->%s %s\n",
+		        from.c_str(), to.c_str(),
+		        status.ToString().c_str());
+		return -1;
+	}
+
+
+	return 0;
 }
 
 static int ldbfs_truncate(const char *p, off_t size)
