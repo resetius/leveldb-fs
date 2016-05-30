@@ -20,6 +20,19 @@ entry::entry(const std::string & name): name(name)
 	st.st_atime = now;
 	st.st_ctime = now;
 	st.st_mtime = now;
+	uuid_generate(inode);
+}
+
+std::string entry::stringify(const std::string & key)
+{
+	std::string r;
+	char buf[256];
+	for (std::string::const_iterator it = key.begin(); it != key.end(); ++it)
+	{
+		snprintf(buf, sizeof(buf), "%02hhx", *it);
+		r += buf;
+	}
+	return r;
 }
 
 dentry::dentry(const std::string & name): entry(name)
@@ -27,9 +40,6 @@ dentry::dentry(const std::string & name): entry(name)
 	st.st_mode = S_IFDIR | 0755;
 	if (name.empty()) {
 		memset(inode, 0, sizeof(inode));
-	} else {
-		uuid_generate(inode);
-		fprintf(l, "new dentry %s\n", name.c_str());
 	}
 }
 
@@ -67,14 +77,19 @@ bool entry::read()
 	if (e.has_mtime()) {
 		st.st_mtime = e.mtime();
 	}
+	if (e.has_size()) {
+		st.st_size = e.size();
+	}
 
 	for (int i = 0; i < e.children_size(); ++i) {
 		const proto::entry_child & c = e.children(i);
 		std::string name = c.name();
 		entry * d = 0;
 		if (c.mode() & S_IFDIR) {
+			fprintf(l, "addin dir to '%s'\n", name.c_str());
 			d = new dentry(name);
 		} else if (c.mode() & S_IFREG) {
+			fprintf(l, "addin file to '%s'\n", name.c_str());
 			d = new fentry(name);
 		}
 
@@ -83,6 +98,10 @@ bool entry::read()
 			memcpy(d->inode, inode.c_str(), sizeof(d->inode)); //TODO: ugly
 			if (d->read()) {
 				entries[name] = boost::shared_ptr<entry>(d);
+				fprintf(l, "adding object to '%s' -> %s %lu\n",
+				        this->name.c_str(),
+				        stringify(d->key()).c_str(),
+				        d->st.st_size);
 			} else {
 				// TODO: error
 				// TODO: make broken entry
@@ -124,15 +143,20 @@ void entry::write(leveldb::WriteBatch & batch)
 	e.set_mode(st.st_mode);
 	e.set_mtime(st.st_mtime);
 	e.set_ctime(st.st_ctime);
+	e.set_size(st.st_size);
+
+//	fprintf(l, "writing entry '%s' \n", name.c_str());
 
 	for (entries_t::iterator it = entries.begin(); it != entries.end(); ++it) {
 		proto::entry_child * c = e.add_children();
 		c->set_mode(it->second->st.st_mode);
 		c->set_ino(it->second->inode, sizeof(it->second->inode));
 		c->set_name(it->second->name);
-	}
 
-	fprintf(l, "writing entry '%s' -> %lu\n", name.c_str(), value.size());
+//		fprintf(l, "adding to entry '%s' -> %u,  %s \n",
+//		        name.c_str(), it->second->st.st_mode,
+//		        stringify(it->second->key()).c_str());
+	}
 
 	e.SerializeToString(&value); // TODO: check error
 

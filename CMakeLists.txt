@@ -31,7 +31,7 @@ target_link_libraries(test-writer
   pthread)
 
 target_link_libraries(leveldb-fs
-  ${FUSE_LIBRARIES} leveldb uuid protobuf)
+  ${FUSE_LIBRARIES} leveldb uuid protobuf boost_system)
 target_include_directories(leveldb-fs PUBLIC
   ${FUSE_INCLUDE_DIRS};${CMAKE_CURRENT_BINARY_DIR})
 target_compile_options(leveldb-fs PUBLIC ${FUSE_CFLAGS_OTHER})

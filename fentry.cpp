@@ -17,12 +17,13 @@ int fentry::write_buf(leveldb::WriteBatch & batch,
                       const char * buf,
                       off_t size, size_t offset)
 {
+
 	int cur_block  = offset / blocksize;
 	int cur_offset = offset;
 	int write_size = 0;
 	const char * p = buf;
 
-	fprintf(l, "cur offset %s %d\n", name.c_str(), cur_offset);
+//	fprintf(l, "cur offset %s %d\n", name.c_str(), cur_offset);
 	int upto = 1;
 
 	int r = offset % blocksize;
@@ -45,7 +46,7 @@ int fentry::write_buf(leveldb::WriteBatch & batch,
 		memcpy(dst, p, upto);
 		value.resize(r+upto);
 
-		fprintf(l, "write(1)key %s\n", key.c_str());
+//		fprintf(l, "write(1)key %s\n", stringify(key).c_str());
 		batch.Put(key, value);
 		write_size += upto;
 
@@ -68,7 +69,7 @@ int fentry::write_buf(leveldb::WriteBatch & batch,
 		if (upto == 0) {
 			break;
 		}
-		fprintf(l, "write key %s\n", key.c_str());
+//		fprintf(l, "write key %s\n", stringify(key).c_str());
 		batch.Put(key, leveldb::Slice(p, upto));
 		write_size += upto;
 		p += upto;
@@ -78,11 +79,12 @@ int fentry::write_buf(leveldb::WriteBatch & batch,
 
 	int filesize = std::max((long)st.st_size, (long)(offset+size));
 
-	write(batch);
+	if (st.st_size != filesize) {
+		st.st_size = filesize;
+		write(batch);
+	}
 
-	st.st_size = filesize;
-
-	fprintf(l, "written %s %d\n", name.c_str(), write_size);
+//	fprintf(l, "written %s %d\n", name.c_str(), write_size);
 
 	return write_size;
 }
@@ -103,21 +105,29 @@ int fentry::read_buf(char * buf,
 	fprintf(l, "read %s <- %lu, %lu %lu\n",
 	        name.c_str(), st.st_size, size, offset);
 
-	while (cur_offset < st.st_size) {
+	while (cur_offset < st.st_size && cur_offset < offset+size) {
 		std::string key = base;
 		int tmp = htonl(cur_block);
 		key.insert(key.end(), (char*)&tmp, (char*)&tmp + sizeof(tmp));
 
 		std::string value;
-		leveldb::Status st = db->Get(options, key, &value);
-		if (!st.ok()) {
-			fprintf(l, "cannot read key %s\n", key.c_str());
+		leveldb::Status status = db->Get(options, key, &value);
+
+		fprintf(l, " try key %s %d %d\n",
+		        stringify(key).c_str(),
+		        cur_offset, cur_block);
+
+		if (!status.ok()) {
+			fprintf(l, "cannot read key %s -> %s\n",
+			        stringify(key).c_str(), status.ToString().c_str());
 			break;
 		}
-		fprintf(l, "read key %s\n", key.c_str());
+		fprintf(l, "read key %s %d %d\n",
+		        stringify(key).c_str(),
+		        cur_offset, cur_block);
 		int upto = std::min(buf + size - p, (long)value.size());
 		read_size += upto;
-		memcpy(p, value.c_str() + cur_offset % blocksize, value.size());
+		memcpy(p, value.c_str() + cur_offset % blocksize, upto);
 		p += upto;
 		cur_block ++;
 		cur_offset = cur_block * blocksize;

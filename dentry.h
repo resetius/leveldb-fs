@@ -10,6 +10,7 @@
 #include <boost/shared_ptr.hpp>
 #include <boost/unordered_map.hpp>
 #include <boost/enable_shared_from_this.hpp>
+#include <boost/thread/mutex.hpp>
 #include <list>
 
 struct dentry;
@@ -18,6 +19,7 @@ struct entry;
 typedef boost::unordered_map<std::string, boost::shared_ptr<entry> > entries_t;
 
 struct entry: public boost::enable_shared_from_this<entry> {
+	boost::mutex mutex;
 	struct stat st;
 
 	uuid_t inode;
@@ -45,6 +47,8 @@ struct entry: public boost::enable_shared_from_this<entry> {
 	{
 		return 0;
 	}
+
+	static std::string stringify(const std::string & key);
 };
 
 struct fentry: public entry {

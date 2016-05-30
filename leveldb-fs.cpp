@@ -1,13 +1,3 @@
-/*
-  FUSE: Filesystem in Userspace
-  Copyright (C) 2001-2007  Miklos Szeredi <miklos@szeredi.hu>
-  Copyright (C) 2011       Sebastian Pipping <sebastian@pipping.org>
-
-  This program can be distributed under the terms of the GNU GPL.
-  See the file COPYING.
-
-  gcc -Wall fusexmp.c `pkg-config fuse --cflags --libs` -o fusexmp
-*/
 
 #define FUSE_USE_VERSION 26
 
@@ -66,7 +56,7 @@ boost::shared_ptr<dentry> root;
 
 std::vector<boost::shared_ptr<entry> > handles;
 
-FILE * l = fopen("fuselog.log", "a");;
+FILE * l = 0;
 
 int filesize=0;
 
@@ -83,6 +73,33 @@ int filesize=0;
 // direntry: d,path
 // inode: i,number
 // block: b,inumber,bnumber
+
+static void * ldbfs_init(struct fuse_conn_info *conn) {
+	l = fopen("/var/tmp/fuselog.log", "w");
+	setbuf(l, 0);
+
+
+	fprintf(l, "init\n");
+
+	leveldb::Options options;
+    options.create_if_missing = true;
+    options.compression = leveldb::kNoCompression;
+
+    handles.resize(maxhandles);
+    
+    leveldb::WriteOptions wo;
+    wo.sync = true;  
+//    options.write_buffer_size = 4*1024*1024;
+	leveldb::Status status = leveldb::DB::Open(options, "/var/tmp/testdb-fs", &db);
+
+	root.reset(new dentry(""));
+	if (!root->read()) {
+		leveldb::WriteBatch batch;
+		root->write(batch);
+		db->Write(wo, &batch);
+	}
+
+}
 
 static int ldbfs_getattr(const char *p, struct stat *stbuf)
 {
@@ -101,7 +118,7 @@ static int ldbfs_getattr(const char *p, struct stat *stbuf)
 	return res;
 }
 
-static int xmp_access(const char *path, int mask)
+static int ldbfs_access(const char *path, int mask)
 {
 	return 0;
 }
@@ -177,82 +194,31 @@ static int ldbfs_mkdir(const char *p, mode_t mode)
 	return 0;
 }
 
-static int xmp_unlink(const char *path)
+static int ldbfs_unlink(const char *path)
 {
-	int res;
-
-	res = unlink(path);
-	if (res == -1)
-		return -errno;
-
-	return 0;
+	return -1;
 }
 
-static int xmp_rmdir(const char *path)
+static int ldbfs_rmdir(const char *path)
 {
-	int res;
-
-	res = rmdir(path);
-	if (res == -1)
-		return -errno;
-
-	return 0;
+	return -1;
 }
 
-static int xmp_rename(const char *from, const char *to)
+static int ldbfs_rename(const char *from, const char *to)
 {
-	int res;
-
-	res = rename(from, to);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_chmod(const char *path, mode_t mode)
-{
-	int res;
-
-	res = chmod(path, mode);
-	if (res == -1)
-		return -errno;
-
-	return 0;
-}
-
-static int xmp_chown(const char *path, uid_t uid, gid_t gid)
-{
-	int res;
-
-	res = lchown(path, uid, gid);
-	if (res == -1)
-		return -errno;
-
-	return 0;
+	return -1;
 }
 
 static int ldbfs_truncate(const char *path, off_t size)
 {
-	int res;
-
 // TODO:
 	return 0;
 }
 
-#ifdef HAVE_UTIMENSAT
-static int xmp_utimens(const char *path, const struct timespec ts[2])
+static int ldbfs_utime(const char *path, struct utimbuf * t)
 {
-	int res;
-
-	/* don't use utime/utimes since they follow symlinks */
-	res = utimensat(0, path, ts, AT_SYMLINK_NOFOLLOW);
-	if (res == -1)
-		return -errno;
-
-	return 0;
+	return -1;
 }
-#endif
 
 static int ldbfs_create(const char *p, mode_t mode,
                         struct fuse_file_info *fi)
@@ -338,6 +304,8 @@ static int ldbfs_read(
 		return -1;
 	}
 
+//	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
+
 	return d->read_buf(buf, size, offset);	
 }
 
@@ -345,7 +313,36 @@ static int ldbfs_write(
 	const char *path, const char *buf, size_t size,
 	off_t offset, struct fuse_file_info *fi)
 {
-	fprintf(l, "write %s %lu %lu\n", path, size, offset);
+//	fprintf(l, "write %s %lu %lu\n", path, size, offset);
+
+	boost::shared_ptr<entry> d(handles[fi->fh]);
+	if (!d) {
+		return -1;
+	}
+
+//	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
+
+	leveldb::WriteOptions options;
+	leveldb::WriteBatch batch;
+//	options.sync = true;
+
+	int write_size = d->write_buf(batch, buf, size, offset);
+
+	leveldb::Status status = db->Write(options, &batch); //TODO: check status
+	if (!status.ok()) {
+		fprintf(l, "cannot write path %s %lu %lu %s\n",
+		        path, size, offset, status.ToString().c_str());
+		return -1;
+	}
+
+	return write_size;
+}
+
+static int ldbfs_fsync(const char *path, int isdatasync,
+		     struct fuse_file_info *fi)
+{
+	(void) path;
+	(void) isdatasync;
 
 	boost::shared_ptr<entry> d(handles[fi->fh]);
 	if (!d) {
@@ -354,36 +351,21 @@ static int ldbfs_write(
 
 	leveldb::WriteOptions options;
 	leveldb::WriteBatch batch;
-	int write_size = d->write_buf(batch, buf, size, offset);
+	options.sync = true;
 
-	db->Write(options, &batch); //TODO: check status
+	d->write(batch);
+	leveldb::Status status = db->Write(options, &batch); //TODO: check status
 
-	return write_size;
-}
+	if (!status.ok()) {
+		fprintf(l, "cannot sync %s %s\n",
+		        path, status.ToString().c_str());
+		return -1;
+	}
 
-static int xmp_release(const char *path, struct fuse_file_info *fi)
-{
-	/* Just a stub.	 This method is optional and can safely be left
-	   unimplemented */
-
-	(void) path;
-	(void) fi;
 	return 0;
 }
 
-static int xmp_fsync(const char *path, int isdatasync,
-		     struct fuse_file_info *fi)
-{
-	/* Just a stub.	 This method is optional and can safely be left
-	   unimplemented */
-
-	(void) path;
-	(void) isdatasync;
-	(void) fi;
-	return 0;
-}
-
-static struct fuse_operations xmp_oper;
+static struct fuse_operations ldbfs_oper;
 #if 0
 = {
 	.getattr	= ldbfs_getattr,
@@ -409,39 +391,25 @@ static struct fuse_operations xmp_oper;
 
 int main(int argc, char *argv[])
 {
-	xmp_oper.getattr = ldbfs_getattr;
-	xmp_oper.readdir = ldbfs_readdir;
-	xmp_oper.open = ldbfs_open;
-	xmp_oper.read = ldbfs_read;
-	xmp_oper.write = ldbfs_write;
-	xmp_oper.access = xmp_access;
-	xmp_oper.truncate = ldbfs_truncate;
-	xmp_oper.create = ldbfs_create;
-	xmp_oper.mkdir = ldbfs_mkdir;
-	xmp_oper.release = ldbfs_release;
+	ldbfs_oper.getattr = ldbfs_getattr;
+	ldbfs_oper.readdir = ldbfs_readdir;
+	ldbfs_oper.open = ldbfs_open;
+	ldbfs_oper.read = ldbfs_read;
+	ldbfs_oper.write = ldbfs_write;
+	ldbfs_oper.access = ldbfs_access;
+	ldbfs_oper.truncate = ldbfs_truncate;
+	ldbfs_oper.create = ldbfs_create;
+	ldbfs_oper.mkdir = ldbfs_mkdir;
+	ldbfs_oper.release = ldbfs_release;
+	ldbfs_oper.fsync = ldbfs_fsync;
+	ldbfs_oper.unlink = ldbfs_unlink;
+	ldbfs_oper.rmdir = ldbfs_rmdir;
+	ldbfs_oper.rename = ldbfs_rename;
+	ldbfs_oper.utime = ldbfs_utime;
+
+	ldbfs_oper.init = ldbfs_init;
 
 	umask(0);
 
-	leveldb::Options options;
-    options.create_if_missing = true;
-    options.compression = leveldb::kNoCompression;
-
-    handles.resize(maxhandles);
-    
-    leveldb::WriteOptions wo;
-    wo.sync = true;
-    
-//    options.write_buffer_size = 4*1024*1024;
-	leveldb::Status status = leveldb::DB::Open(options, "./testdb-fs", &db);
-
-	root.reset(new dentry(""));
-	if (!root->read()) {
-		leveldb::WriteBatch batch;
-		root->write(batch);
-		db->Write(wo, &batch);
-	}
-	
-	setbuf(l, 0);
-
-	return fuse_main(argc, argv, &xmp_oper, NULL);
+	return fuse_main(argc, argv, &ldbfs_oper, NULL);
 }
