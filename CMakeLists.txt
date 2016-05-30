@@ -30,6 +30,11 @@ add_executable(test-writer test-writer.cpp)
 target_link_libraries(test-writer
   pthread)
 
+add_executable(test-leveldb leveldb-test.cpp)
+
+target_link_libraries(test-leveldb
+  pthread leveldb)
+
 target_link_libraries(leveldb-fs
   ${FUSE_LIBRARIES} leveldb uuid protobuf boost_system)
 target_include_directories(leveldb-fs PUBLIC
