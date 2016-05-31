@@ -16,14 +16,21 @@ add_custom_command(OUTPUT
   COMMAND protoc ${CMAKE_CURRENT_SOURCE_DIR}/messages.proto -I${CMAKE_CURRENT_SOURCE_DIR} --cpp_out=${CMAKE_CURRENT_BINARY_DIR}
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/messages.proto)
 
-add_executable(leveldb-fs
-  leveldb-fs.cpp
+include_directories(
+  ${FUSE_INCLUDE_DIRS}
+  ${CMAKE_CURRENT_BINARY_DIR})
+
+add_library(fs
   dentry.cpp
   dentry.h
   fentry.cpp
+  fs.h
+  fs.cpp
   ${CMAKE_CURRENT_BINARY_DIR}/messages.pb.h
-  ${CMAKE_CURRENT_BINARY_DIR}/messages.pb.cc
-  )
+  ${CMAKE_CURRENT_BINARY_DIR}/messages.pb.cc) 
+
+add_executable(leveldb-fs leveldb-fs.cpp)
+add_executable(mkfs.ldbfs mkfs.cpp)
 
 add_executable(test-writer test-writer.cpp)
 
@@ -35,8 +42,10 @@ add_executable(test-leveldb leveldb-test.cpp)
 target_link_libraries(test-leveldb
   pthread leveldb)
 
-target_link_libraries(leveldb-fs
+target_link_libraries(leveldb-fs fs
   ${FUSE_LIBRARIES} leveldb uuid protobuf boost_system)
-target_include_directories(leveldb-fs PUBLIC
-  ${FUSE_INCLUDE_DIRS};${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(mkfs.ldbfs fs
+  ${FUSE_LIBRARIES} leveldb uuid protobuf boost_system)
 target_compile_options(leveldb-fs PUBLIC ${FUSE_CFLAGS_OTHER})
+target_compile_options(fs PUBLIC ${FUSE_CFLAGS_OTHER})
+target_compile_options(mkfs.ldbfs PUBLIC ${FUSE_CFLAGS_OTHER})

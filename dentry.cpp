@@ -9,9 +9,10 @@
 #include "leveldb/write_batch.h"
 
 #include "dentry.h"
+#include "fs.h"
 
-extern leveldb::DB* db;
 extern FILE * l;
+extern FS * fs;
 
 entry::entry(const std::string & name): name(name)
 {
@@ -52,7 +53,7 @@ bool entry::read()
 {
 	std::string value;
 	leveldb::ReadOptions options;
-	leveldb::Status status = db->Get(options, key(), &value);
+	leveldb::Status status = fs->db->Get(options, key(), &value);
 	if (!status.ok()) {
 		fprintf(l, "key not found '%s'\n", name.c_str());
 		return false;

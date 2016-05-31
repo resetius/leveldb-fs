@@ -30,14 +30,8 @@
 #include <boost/unordered_set.hpp>
 
 #include "dentry.h"
+#include "fs.h"
 
-static const char *hello_path = "/hello";
-
-int maxhandles=1000000;
-int blocksize=4*1024;
-leveldb::DB* db;
-
-boost::shared_ptr<dentry> root;
 // TODO: remove while writing?
 // remove algo proposal:
 // 1. mark removed inode in superblock
@@ -55,12 +49,9 @@ boost::shared_ptr<dentry> root;
 //   2.3 unmark
 // 3. on powerfailure repeat from 2
 
-std::vector<boost::shared_ptr<entry> > handles;
-boost::unordered_set<uint64_t> allocated_handles;
 
-FILE * l = 0;
-
-int filesize=0;
+extern FILE * l;
+extern FS * fs;
 
 // dentry -> [type,entry]
 // (f,entry) -> (inode,name)
@@ -76,31 +67,10 @@ int filesize=0;
 // inode: i,number
 // block: b,inumber,bnumber
 
+
 static void * ldbfs_init(struct fuse_conn_info *conn) {
-	l = fopen("/var/tmp/fuselog.log", "w");
-	setbuf(l, 0);
-
-
-	fprintf(l, "init\n");
-
-	leveldb::Options options;
-    options.create_if_missing = true;
-    options.compression = leveldb::kNoCompression;
-
-    handles.resize(maxhandles);
-    
-    leveldb::WriteOptions wo;
-    wo.sync = true;  
-//    options.write_buffer_size = 4*1024*1024;
-	leveldb::Status status = leveldb::DB::Open(options, "/var/tmp/testdb-fs", &db);
-
-	root.reset(new dentry(""));
-	if (!root->read()) {
-		leveldb::WriteBatch batch;
-		root->write(batch);
-		db->Write(wo, &batch);
-	}
-
+	fs = new FS();
+	fs->mount();
 }
 
 static int ldbfs_getattr(const char *p, struct stat *stbuf)
@@ -110,7 +80,7 @@ static int ldbfs_getattr(const char *p, struct stat *stbuf)
 	fprintf(l, "getattr %s\n", p);
     memset(stbuf, 0, sizeof(struct stat));
 
-	boost::shared_ptr<entry> e = root->find(p+1);
+	boost::shared_ptr<entry> e = fs->find(p+1);
 	if (!e) {
 		res = -ENOENT;
 	} else {
@@ -133,7 +103,7 @@ static int ldbfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 
 	fprintf(l, "readdir %s\n", path);
 
-	boost::shared_ptr<entry> d(root->find(path+1));
+	boost::shared_ptr<entry> d(fs->find(path+1));
 	
 	if (!d) {
 		return -ENOENT;
@@ -158,22 +128,13 @@ static int ldbfs_mkdir(const char *p, mode_t mode)
 
 	fprintf(l, "mkdir %s\n", p);
 
-	if (root->find(path)) {
+	if (fs->find(path)) {
 		fprintf(l, "already exists %s\n", p);
 		return -1; // already exists. TODO: check error code
 	}
 
-	boost::shared_ptr<entry> dst;
-	size_t pos = path.rfind("/");
-	if (pos == std::string::npos) {
-		fprintf(l, "root parent %s\n", p);
-		dst = root;
-		name = path;
-	} else {
-		fprintf(l, "non root parent %s\n", p);
-		dst = root->find(path.substr(0, pos));
-		name = path.substr(pos+1);
-	}
+	boost::shared_ptr<entry> dst = fs->find_parent(path);
+	name = fs->filename(path);
 
 	if (!dst) {
 		fprintf(l, "cannot find dst %s\n", p);
@@ -185,13 +146,11 @@ static int ldbfs_mkdir(const char *p, mode_t mode)
 	boost::shared_ptr<entry> r(new dentry(name));
 	dst->entries[name] = r;
 
-	leveldb::WriteOptions writeOptions;
 	leveldb::WriteBatch batch;
 
-	writeOptions.sync = true;
 	r->write(batch);
 	dst->write(batch);
-	db->Write(writeOptions, &batch); // TODO: check status
+	fs->write(batch, true); // TODO: check status
 
 	return 0;
 }
@@ -201,20 +160,12 @@ static int ldbfs_unlink(const char *p)
 	fprintf(l, "unlink %s\n", p);
 	std::string path(p+1);
 
-	boost::shared_ptr<entry> e = root->find(p+1);
+	boost::shared_ptr<entry> e = fs->find(path);
 	if (!e) {
 		return -ENOENT;
 	}
 
-	boost::shared_ptr<entry> dst;
-	size_t pos = path.rfind("/");
-	if (pos == std::string::npos) {
-		fprintf(l, "root parent %s\n", p);
-		dst = root;
-	} else {
-		fprintf(l, "non root parent %s\n", p);
-		dst = root->find(path.substr(0, pos));
-	}
+	boost::shared_ptr<entry> dst = fs->find_parent(path);
 
 	if (!dst) {
 		fprintf(l, "cannot find dst %s\n", p);
@@ -235,15 +186,13 @@ static int ldbfs_unlink(const char *p)
 	boost::unique_lock<boost::mutex> scoped_lock1(*m1);
 	boost::unique_lock<boost::mutex> scoped_lock2(*m2);
 
-	leveldb::WriteOptions options;
 	leveldb::WriteBatch batch;
-	options.sync = true;
 
 	e->remove(batch);
 	dst->entries.erase(e->name);
 	dst->write(batch);
 
-	leveldb::Status status = db->Write(options, &batch); //TODO: check status
+	leveldb::Status status = fs->write(batch, true); //TODO: check status
 
 
 	if (!status.ok()) {
@@ -260,7 +209,7 @@ static int ldbfs_rmdir(const char *p)
 	fprintf(l, "rmdir %s\n", p);
 	std::string path(p+1);
 
-	boost::shared_ptr<entry> e = root->find(p+1);
+	boost::shared_ptr<entry> e = fs->find(path);
 	if (!e) {
 		return -ENOENT;
 	}
@@ -270,13 +219,10 @@ static int ldbfs_rmdir(const char *p)
 		return -1;
 	}
 
-	leveldb::WriteOptions options;
 	leveldb::WriteBatch batch;
-	options.sync = true;
 
 	e->remove(batch);
-	leveldb::Status status = db->Write(options, &batch); //TODO: check status
-
+	leveldb::Status status = fs->write(batch, true); //TODO: check status
 
 	if (!status.ok()) {
 		fprintf(l, "cannot rmdir %s %s\n",
@@ -292,38 +238,18 @@ static int ldbfs_rename(const char *f, const char *t)
 	std::string from(f+1);
 	std::string to(t+1);
 
-	boost::shared_ptr<entry> src = root->find(from);
+	boost::shared_ptr<entry> src = fs->find(from);
 	if (!src) {
 		return -ENOENT;
 	}
 
-	leveldb::WriteOptions options;
 	leveldb::WriteBatch batch;
-	options.sync = true;
 
-	boost::shared_ptr<entry> dst = root->find(to);
+	boost::shared_ptr<entry> dst = fs->find(to);
 
-	boost::shared_ptr<entry> src_parent;
-	size_t pos = from.rfind("/");
-	if (pos == std::string::npos) {
-		fprintf(l, "root parent %s\n", f);
-		src_parent = root;
-	} else {
-		fprintf(l, "non root parent %s\n", f);
-		src_parent = root->find(from.substr(0, pos));
-	}
-	boost::shared_ptr<entry> dst_parent;
-	pos = to.rfind("/");
-	std::string new_name;
-	if (pos == std::string::npos) {
-		fprintf(l, "root parent %s\n", t);
-		dst_parent = root;
-		new_name = to;
-	} else {
-		fprintf(l, "non root parent %s\n", t);
-		dst_parent = root->find(to.substr(0, pos));
-		new_name = to.substr(pos+1, 0);
-	}
+	boost::shared_ptr<entry> src_parent = fs->find_parent(from);
+	boost::shared_ptr<entry> dst_parent = fs->find_parent(to);	
+	std::string new_name = fs->filename(to);
 
 	if (!src_parent || !dst_parent) {
 		return -1;
@@ -345,7 +271,7 @@ static int ldbfs_rename(const char *f, const char *t)
 
 	src_parent->write(batch);
 	dst_parent->write(batch);
-	leveldb::Status status = db->Write(options, &batch); //TODO: check status
+	leveldb::Status status = fs->write(batch, true); //TODO: check status
 
 	if (!status.ok()) {
 		fprintf(l, "cannot rename %s->%s %s\n",
@@ -363,19 +289,17 @@ static int ldbfs_truncate(const char *p, off_t size)
 	fprintf(l, "truncate %s\n", p);
 	std::string path(p+1);
 
-	boost::shared_ptr<entry> e = root->find(p+1);
+	boost::shared_ptr<entry> e = fs->find(path);
 	if (!e) {
 		return -ENOENT;
 	}
 
 	boost::unique_lock<boost::mutex> scoped_lock(e->mutex);
 
-	leveldb::WriteOptions options;
 	leveldb::WriteBatch batch;
-	options.sync = true;
 
 	e->truncate(batch, size);
-	leveldb::Status status = db->Write(options, &batch); //TODO: check status
+	leveldb::Status status = fs->write(batch, true); //TODO: check status
 
 
 	if (!status.ok()) {
@@ -392,45 +316,18 @@ static int ldbfs_utime(const char *path, struct utimbuf * t)
 	return 0;
 }
 
-uint64_t allocate_handle(struct fuse_file_info *fi)
-{
-	// TODO: lock
-	uint64_t fh = 0;
-	for (; allocated_handles.find(fh) != allocated_handles.end(); ++fh);
-
-	allocated_handles.insert(fh);
-	fi->fh = fh;
-	return fh;
-}
-
-
 static int ldbfs_create(const char *p, mode_t mode,
                         struct fuse_file_info *fi)
 {
 	std::string path = p+1;
-	boost::shared_ptr<entry> d(root->find(path));
+	boost::shared_ptr<entry> d(fs->find(path));
 	if (d) {
 		// already exists
 		return -1;
 	}
-
-	uint64_t fh = allocate_handle(fi);
-	
-	fprintf(l, "create '%s' -> %lu\n", p, fh);
-
-	boost::shared_ptr<entry> dst;
-	size_t pos = path.rfind("/");
-	std::string name;
-
-	if (pos == std::string::npos) {
-		fprintf(l, "root parent %s\n", p);
-		dst = root;
-		name = path;
-	} else {
-		fprintf(l, "non root parent %s\n", p);
-		dst = root->find(path.substr(0, pos));
-		name = path.substr(pos+1);
-	}
+		
+	boost::shared_ptr<entry> dst = fs->find_parent(path);
+	std::string name = fs->filename(path);
 
 	if (!dst) {
 		fprintf(l, "cannot find dst %s\n", p);
@@ -440,31 +337,25 @@ static int ldbfs_create(const char *p, mode_t mode,
 	boost::shared_ptr<entry> r(new fentry(name));
 	dst->entries[name] = r;
 
-	leveldb::WriteOptions writeOptions;
 	leveldb::WriteBatch batch;
 
-	writeOptions.sync = true;
 	r->write(batch);
 	dst->write(batch);
-	db->Write(writeOptions, &batch); // TODO: check status
+	fs->write(batch, true); // TODO: check status
 
-	handles[fh] = r;
+	fs->allocate_handle(r, fi);
 
 	return 0;
 }
 
 static int ldbfs_open(const char *p, struct fuse_file_info *fi)
 {
-	boost::shared_ptr<entry> d(root->find(p+1));
+	boost::shared_ptr<entry> d(fs->find(p+1));
 	if (!d) {
 		return -1;
 	}
 
-	uint64_t fh = allocate_handle(fi);
-
-	fprintf(l, "open '%s' -> %lu\n", p, fh);
-
-	handles[fh] = d;
+	fs->allocate_handle(d, fi);
 
 	return 0;
 }
@@ -472,13 +363,12 @@ static int ldbfs_open(const char *p, struct fuse_file_info *fi)
 static int ldbfs_release(const char *path, struct fuse_file_info *fi)
 {
 	fprintf(l, "release '%s' -> %lu\n", path, fi->fh);
-	boost::shared_ptr<entry> r(handles[fi->fh]);
+	boost::shared_ptr<entry> r(fs->find_handle(fi->fh));
 	if (!r) {
 		return -1;
 	}
 
-	allocated_handles.erase(fi->fh);
-	handles[fi->fh].reset();
+	fs->release_handle(fi->fh);
 
 	return 0;
 }
@@ -489,7 +379,7 @@ static int ldbfs_read(
 {
 	fprintf(l, "read %s\n", path);
 
-	boost::shared_ptr<entry> d(handles[fi->fh]);
+	boost::shared_ptr<entry> d(fs->find_handle(fi->fh));
 	if (!d) {
 		return -1;
 	}
@@ -505,20 +395,18 @@ static int ldbfs_write(
 {
 //	fprintf(l, "write %s %lu %lu\n", path, size, offset);
 
-	boost::shared_ptr<entry> d(handles[fi->fh]);
+	boost::shared_ptr<entry> d(fs->find_handle(fi->fh));
 	if (!d) {
 		return -1;
 	}
 
 	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
 
-	leveldb::WriteOptions options;
 	leveldb::WriteBatch batch;
-//	options.sync = true;
 
 	int write_size = d->write_buf(batch, buf, size, offset);
 
-	leveldb::Status status = db->Write(options, &batch); //TODO: check status
+	leveldb::Status status = fs->write(batch, false); //TODO: check status
 	if (!status.ok()) {
 		fprintf(l, "cannot write path %s %lu %lu %s\n",
 		        path, size, offset, status.ToString().c_str());
@@ -534,17 +422,15 @@ static int ldbfs_fsync(const char *path, int isdatasync,
 	(void) path;
 	(void) isdatasync;
 
-	boost::shared_ptr<entry> d(handles[fi->fh]);
+	boost::shared_ptr<entry> d(fs->find_handle(fi->fh));
 	if (!d) {
 		return -1;
 	}
 
-	leveldb::WriteOptions options;
 	leveldb::WriteBatch batch;
-	options.sync = true;
 
 	d->write(batch);
-	leveldb::Status status = db->Write(options, &batch); //TODO: check status
+	leveldb::Status status = fs->write(batch, true); //TODO: check status
 
 	if (!status.ok()) {
 		fprintf(l, "cannot sync %s %s\n",
@@ -556,28 +442,6 @@ static int ldbfs_fsync(const char *path, int isdatasync,
 }
 
 static struct fuse_operations ldbfs_oper;
-#if 0
-= {
-	.getattr	= ldbfs_getattr,
-//	.access		= xmp_access,
-	.readdir	= ldbfs_readdir,
-//	.mkdir		= xmp_mkdir,
-//	.unlink		= xmp_unlink,
-//	.rmdir		= xmp_rmdir,
-//	.rename		= xmp_rename,
-//	.chmod		= xmp_chmod,
-//	.chown		= xmp_chown,
-//	.truncate	= xmp_truncate,
-#ifdef HAVE_UTIMENSAT
-//	.utimens	= xmp_utimens,
-#endif
-	.open		= xmp_open,
-	.read		= xmp_read,
-//	.write		= xmp_write,
-//	.release	= xmp_release,
-//	.fsync		= xmp_fsync
-};
-#endif
 
 int main(int argc, char *argv[])
 {

@@ -1,22 +1,24 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <arpa/inet.h>
 
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"
 
 #include "dentry.h"
+#include "fs.h"
 
-#include <arpa/inet.h>
-
-extern leveldb::DB* db;
 extern FILE * l;
-extern int blocksize;
+extern FS * fs;
 
 int fentry::write_buf(leveldb::WriteBatch & batch,
                       const char * buf,
                       off_t size, size_t offset)
 {
+
+	int blocksize = fs->blocksize;
+	leveldb::DB * db = fs->db;
 
 	int cur_block  = offset / blocksize;
 	int cur_offset = offset;
@@ -92,6 +94,9 @@ int fentry::write_buf(leveldb::WriteBatch & batch,
 int fentry::read_buf(char * buf,
                      off_t size, size_t offset)
 {
+	int blocksize = fs->blocksize;
+	leveldb::DB * db = fs->db;
+
 	int cur_block  = offset / blocksize;
 	int cur_offset = offset;
 	int read_size = 0;
@@ -140,6 +145,9 @@ int fentry::read_buf(char * buf,
 
 void fentry::remove(leveldb::WriteBatch & batch)
 {
+	int blocksize = fs->blocksize;
+	leveldb::DB * db = fs->db;
+
 	size_t offset = 0;
 	int cur_block  = offset / blocksize;
 	int cur_offset = offset;
@@ -160,6 +168,9 @@ void fentry::remove(leveldb::WriteBatch & batch)
 
 void fentry::truncate(leveldb::WriteBatch & batch, size_t new_size)
 {
+	int blocksize = fs->blocksize;
+	leveldb::DB * db = fs->db;
+
 	if (new_size >= st.st_size) {
 		return;
 	}
