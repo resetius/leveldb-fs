@@ -18,6 +18,42 @@ struct entry;
 
 typedef boost::unordered_map<std::string, boost::shared_ptr<entry> > entries_t;
 
+#pragma pack (push, 1)
+struct block_key
+{
+	char type;
+	uuid_t inode;
+	int blockno;
+
+	int size() const {
+		if (blockno >= 0) {
+			return sizeof(type)+sizeof(inode)+sizeof(blockno);
+		} else {
+			return sizeof(type)+sizeof(inode);
+		}
+	}
+};
+#pragma pack ( pop)
+
+struct operation
+{
+	enum {
+		PUT = 0,
+		DELETE = 1
+	};
+
+	block_key key;
+	int type;
+	std::string data;
+
+	operation(const block_key & key, int type, const std::string & data):
+		key(key), type(type), data(data)
+	{
+	}
+};
+
+typedef std::vector<operation> batch_t;
+
 struct entry: public boost::enable_shared_from_this<entry> {
 	boost::mutex mutex;
 	struct stat st;
@@ -29,13 +65,12 @@ struct entry: public boost::enable_shared_from_this<entry> {
 	entry(const std::string & name);
 	virtual ~entry() {}
 	virtual bool read();
-	virtual void write(leveldb::WriteBatch & batch);
-	virtual std::string key() = 0;
+	virtual void write(batch_t & batch);
 
 	boost::shared_ptr<entry> find(const std::string & path);
 
 	virtual void fillstat(struct stat * s) = 0;
-	virtual int write_buf(leveldb::WriteBatch & batch,
+	virtual int write_buf(batch_t & batch,
 	                      const char * buf,
 	                      off_t size, size_t offset)
 	{
@@ -48,8 +83,10 @@ struct entry: public boost::enable_shared_from_this<entry> {
 		return 0;
 	}
 
-	virtual void remove(leveldb::WriteBatch & batch) {}
-	virtual void truncate(leveldb::WriteBatch & batch, size_t new_size) {}
+	virtual char type() = 0;
+
+	virtual void remove(batch_t & batch) {}
+	virtual void truncate(batch_t & batch, size_t new_size) {}
 
 	static std::string stringify(const std::string & key);
 };
@@ -57,7 +94,7 @@ struct entry: public boost::enable_shared_from_this<entry> {
 struct fentry: public entry {
 	fentry(const std::string & name);
 	
-	int write_buf(leveldb::WriteBatch & batch,
+	int write_buf(batch_t & batch,
 	              const char * buf,
 	              off_t size,
 	              size_t offset);
@@ -65,16 +102,21 @@ struct fentry: public entry {
 	int read_buf(char * buf,
 	             off_t size, size_t offset);
 
-	void remove(leveldb::WriteBatch & batch);
-	void truncate(leveldb::WriteBatch & batch, size_t new_size);
+	void remove(batch_t & batch);
+	void truncate(batch_t & batch, size_t new_size);
 
-	std::string key();
+	char type() {
+		return 'f';
+	}
+
 	void fillstat(struct stat * s);
 };
 
 struct dentry: public entry {
 	dentry(const std::string & name);
-	std::string key();
 	void fillstat(struct stat * s);
-	void remove(leveldb::WriteBatch & batch);
+	void remove(batch_t & batch);
+	char type() {
+		return 'd';
+	}
 };

@@ -1,9 +1,12 @@
 #include "fs.h"
 
+extern FS * fs;
+
 int main(int argc, char ** argv)
 {
-	FS * fs = new FS();
-	fs->mkfs();
+	FS * f = new FS();
+	fs = f; //TODO: ugly
+	f->mkfs();
 	delete fs;
 	return 0;
 }

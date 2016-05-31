@@ -146,7 +146,7 @@ static int ldbfs_mkdir(const char *p, mode_t mode)
 	boost::shared_ptr<entry> r(new dentry(name));
 	dst->entries[name] = r;
 
-	leveldb::WriteBatch batch;
+	batch_t batch;
 
 	r->write(batch);
 	dst->write(batch);
@@ -186,18 +186,18 @@ static int ldbfs_unlink(const char *p)
 	boost::unique_lock<boost::mutex> scoped_lock1(*m1);
 	boost::unique_lock<boost::mutex> scoped_lock2(*m2);
 
-	leveldb::WriteBatch batch;
+	batch_t batch;
 
 	e->remove(batch);
 	dst->entries.erase(e->name);
 	dst->write(batch);
 
-	leveldb::Status status = fs->write(batch, true); //TODO: check status
+	bool status = fs->write(batch, true); //TODO: check status
 
 
-	if (!status.ok()) {
-		fprintf(l, "cannot remove %s %s\n",
-		        p, status.ToString().c_str());
+	if (!status) {
+//		fprintf(l, "cannot remove %s %s\n",
+//		        p, status.ToString().c_str());
 		return -1;
 	}
 
@@ -219,14 +219,14 @@ static int ldbfs_rmdir(const char *p)
 		return -1;
 	}
 
-	leveldb::WriteBatch batch;
+	batch_t batch;
 
 	e->remove(batch);
-	leveldb::Status status = fs->write(batch, true); //TODO: check status
+	bool status = fs->write(batch, true); //TODO: check status
 
-	if (!status.ok()) {
-		fprintf(l, "cannot rmdir %s %s\n",
-		        p, status.ToString().c_str());
+	if (!status) {
+//		fprintf(l, "cannot rmdir %s %s\n",
+//		        p, status.ToString().c_str());
 		return -1;
 	}
 
@@ -243,7 +243,7 @@ static int ldbfs_rename(const char *f, const char *t)
 		return -ENOENT;
 	}
 
-	leveldb::WriteBatch batch;
+	batch_t batch;
 
 	boost::shared_ptr<entry> dst = fs->find(to);
 
@@ -271,12 +271,12 @@ static int ldbfs_rename(const char *f, const char *t)
 
 	src_parent->write(batch);
 	dst_parent->write(batch);
-	leveldb::Status status = fs->write(batch, true); //TODO: check status
+	bool status = fs->write(batch, true); //TODO: check status
 
-	if (!status.ok()) {
-		fprintf(l, "cannot rename %s->%s %s\n",
-		        from.c_str(), to.c_str(),
-		        status.ToString().c_str());
+	if (!status) {
+//		fprintf(l, "cannot rename %s->%s %s\n",
+//		        from.c_str(), to.c_str(),
+//		        status.ToString().c_str());
 		return -1;
 	}
 
@@ -296,15 +296,15 @@ static int ldbfs_truncate(const char *p, off_t size)
 
 	boost::unique_lock<boost::mutex> scoped_lock(e->mutex);
 
-	leveldb::WriteBatch batch;
+	batch_t batch;
 
 	e->truncate(batch, size);
-	leveldb::Status status = fs->write(batch, true); //TODO: check status
+	bool status = fs->write(batch, true); //TODO: check status
 
 
-	if (!status.ok()) {
-		fprintf(l, "cannot truncate %s %s\n",
-		        p, status.ToString().c_str());
+	if (!status) {
+//		fprintf(l, "cannot truncate %s %s\n",
+//		        p, status.ToString().c_str());
 		return -1;
 	}
 
@@ -337,7 +337,7 @@ static int ldbfs_create(const char *p, mode_t mode,
 	boost::shared_ptr<entry> r(new fentry(name));
 	dst->entries[name] = r;
 
-	leveldb::WriteBatch batch;
+	batch_t batch;
 
 	r->write(batch);
 	dst->write(batch);
@@ -402,14 +402,14 @@ static int ldbfs_write(
 
 	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
 
-	leveldb::WriteBatch batch;
+	batch_t batch;
 
 	int write_size = d->write_buf(batch, buf, size, offset);
 
-	leveldb::Status status = fs->write(batch, false); //TODO: check status
-	if (!status.ok()) {
-		fprintf(l, "cannot write path %s %lu %lu %s\n",
-		        path, size, offset, status.ToString().c_str());
+	bool status = fs->write(batch, false); //TODO: check status
+	if (!status) {
+//		fprintf(l, "cannot write path %s %lu %lu %s\n",
+//		        path, size, offset, status.ToString().c_str());
 		return -1;
 	}
 
@@ -427,14 +427,14 @@ static int ldbfs_fsync(const char *path, int isdatasync,
 		return -1;
 	}
 
-	leveldb::WriteBatch batch;
+	batch_t batch;
 
 	d->write(batch);
-	leveldb::Status status = fs->write(batch, true); //TODO: check status
+	bool status = fs->write(batch, true); //TODO: check status
 
-	if (!status.ok()) {
-		fprintf(l, "cannot sync %s %s\n",
-		        path, status.ToString().c_str());
+	if (!status) {
+//		fprintf(l, "cannot sync %s %s\n",
+//		        path, status.ToString().c_str());
 		return -1;
 	}
 

@@ -7,6 +7,7 @@ FS::FS()
 {
 	maxhandles=1000000;
 	blocksize=4*1024;
+	parts=10;
 
 	l = fopen("/var/tmp/fuselog.log", "w");
 	setbuf(l, 0);
@@ -14,32 +15,44 @@ FS::FS()
 
 	fprintf(l, "init\n");
 
-	leveldb::Options options;
-    options.create_if_missing = true;
-    options.compression = leveldb::kNoCompression;
+	dbroot = "/var/tmp/testdb-fs";
 
     handles.resize(maxhandles);
     
-	leveldb::Status status = leveldb::DB::Open(options, "/var/tmp/testdb-fs", &db);
-
 	root.reset(new dentry(""));
+}
+
+void FS::open(bool create)
+{
+	leveldb::Options options;
+    options.create_if_missing = create;
+    options.compression = leveldb::kNoCompression;
+    
+    leveldb::Status status;
+    status = leveldb::DB::Open(options, dbroot + "/dentry", &meta);
+    data.resize(parts);
+    for (int i = 0; i < parts; ++i) {
+	    char buf[1024];
+	    snprintf(buf, sizeof(buf), "/fentry-%04d", i);
+	    status = leveldb::DB::Open(options, dbroot + buf, &data[i]);
+    }
 }
 
 void FS::mount()
 {
+	open(false);
 	root->read();
 }
 
 void FS::mkfs()
 {
-    leveldb::WriteOptions wo;
-    wo.sync = true;  
-//    options.write_buffer_size = 4*1024*1024;
+	fs = this;
+	open(true);
 
 	if (!root->read()) {
-		leveldb::WriteBatch batch;
+		batch_t batch;
 		root->write(batch);
-		db->Write(wo, &batch);
+		fs->write(batch, true);
 	}
 }
 
@@ -99,9 +112,71 @@ boost::shared_ptr<entry> FS::find_handle(uint64_t t)
 	return handles[t];
 }
 
-leveldb::Status FS::write(leveldb::WriteBatch & batch, bool sync)
+bool FS::read(const block_key & key, std::string & value)
+{
+	leveldb::ReadOptions readOptions;
+	leveldb::Status status;
+
+	leveldb::DB * db = 0;
+	
+	if (key.type == 'd') {
+		db = meta;
+	} else {
+		uint64_t part;
+		memcpy(&part, key.inode, sizeof(part));
+		part = part % parts;
+		leveldb::DB * fbnew = data[part];
+		assert(db == 0 || fbnew == fb);
+		db = fbnew;
+	}
+
+	status = db->Get(readOptions, leveldb::Slice((char*)&key, key.size()), &value);
+}
+
+bool FS::write(batch_t & batch, bool sync)
 {
 	leveldb::WriteOptions writeOptions;
 	writeOptions.sync = sync;
-	return db->Write(writeOptions, &batch);
+
+	leveldb::WriteBatch dbatch;
+	leveldb::WriteBatch fbatch;
+
+	leveldb::DB * db = 0;
+	leveldb::DB * fb = 0;
+
+	for (int i = 0; i < batch.size(); ++i) {
+		leveldb::WriteBatch * b;
+		if (batch[i].key.type == 'd') {
+			db = meta;
+			b = &dbatch;
+		} else {
+			uint64_t part;
+			memcpy(&part, batch[i].key.inode, sizeof(part));
+			part = part % parts;
+			leveldb::DB * fbnew = data[part];
+			assert(db == 0 || fbnew == fb);
+			fb = fbnew;
+			b = &fbatch;
+		}
+
+		leveldb::Slice slice((char*)&batch[i].key, batch[i].key.size());
+		switch (batch[i].type) {
+		case operation::DELETE:
+			b->Delete(slice);
+			break;
+		case operation::PUT:
+			b->Put(slice, batch[i].data);
+			break;
+		}
+	}
+
+	leveldb::Status status;
+	if (db) {
+		status = db->Write(writeOptions, &dbatch);
+	}
+	if (fb) {
+		status = fb->Write(writeOptions, &fbatch);
+	}
+	
+	return status.ok();
 }

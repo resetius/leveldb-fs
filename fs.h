@@ -12,7 +12,11 @@ struct FS
 {
 	int maxhandles;
 	int blocksize;
-	leveldb::DB* db;
+	leveldb::DB * meta;
+	std::string dbroot;
+
+	int parts;
+	std::vector<leveldb::DB*> data;
 
 	std::vector<boost::shared_ptr<entry> > handles;
 	boost::unordered_set<uint64_t> allocated_handles;
@@ -28,10 +32,12 @@ struct FS
 	void release_handle(uint64_t h);
 	
 
-	leveldb::Status write(leveldb::WriteBatch & batch, bool sync = false);
+	bool write(batch_t & batch, bool sync = false);
+	bool read(const block_key & key, std::string & value);
 
 	void mkfs();
 	void mount();
+	void open(bool create);
 
 	FS();
 };

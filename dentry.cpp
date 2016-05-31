@@ -52,9 +52,13 @@ fentry::fentry(const std::string & name): entry(name)
 bool entry::read()
 {
 	std::string value;
-	leveldb::ReadOptions options;
-	leveldb::Status status = fs->db->Get(options, key(), &value);
-	if (!status.ok()) {
+
+	block_key key;
+	key.type = type();
+	memcpy(key.inode, inode, sizeof(inode));
+	key.blockno = -1;	
+
+	if (!fs->read(key, value)) {
 		fprintf(l, "key not found '%s'\n", name.c_str());
 		return false;
 	}
@@ -99,10 +103,10 @@ bool entry::read()
 			memcpy(d->inode, inode.c_str(), sizeof(d->inode)); //TODO: ugly
 			if (d->read()) {
 				entries[name] = boost::shared_ptr<entry>(d);
-				fprintf(l, "adding object to '%s' -> %s %lu\n",
-				        this->name.c_str(),
-				        stringify(d->key()).c_str(),
-				        d->st.st_size);
+//				fprintf(l, "adding object to '%s' -> %s %lu\n",
+//				        this->name.c_str(),
+//				        stringify(d->key()).c_str(),
+//				        d->st.st_size);
 			} else {
 				// TODO: error
 				// TODO: make broken entry
@@ -115,23 +119,7 @@ bool entry::read()
 	return true;
 }
 
-std::string fentry::key()
-{
-	char k[sizeof(inode)+1];
-	k[0] = 'f';
-	memcpy(&k[1], inode, sizeof(inode));
-	return std::string(k, sizeof(k));
-}
-
-std::string dentry::key()
-{
-	char k[sizeof(inode)+1];
-	k[0] = 'd';
-	memcpy(&k[1], inode, sizeof(inode));
-	return std::string(k, sizeof(k));
-}
-
-void entry::write(leveldb::WriteBatch & batch)
+void entry::write(batch_t & batch)
 {
 	std::string value;
 
@@ -161,7 +149,11 @@ void entry::write(leveldb::WriteBatch & batch)
 
 	e.SerializeToString(&value); // TODO: check error
 
-	batch.Put(key(), value);
+	block_key key;
+	key.type = type();
+	memcpy(key.inode, inode, sizeof(inode));
+	key.blockno = -1;
+	batch.push_back(operation(key, operation::PUT, value));
 }
 
 boost::shared_ptr<entry> entry::find(const std::string & path)
@@ -193,7 +185,11 @@ void dentry::fillstat(struct stat * s)
 	memcpy(&s->st_ino, inode, sizeof(s->st_ino)); 
 }
 
-void dentry::remove(leveldb::WriteBatch & batch)
+void dentry::remove(batch_t & batch)
 {
-	batch.Delete(key());
+	block_key key;
+	key.type = type();
+	memcpy(key.inode, inode, sizeof(inode));
+	key.blockno = -1;
+	batch.push_back(operation(key, operation::DELETE, std::string()));
 }

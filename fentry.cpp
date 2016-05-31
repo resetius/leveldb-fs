@@ -12,13 +12,12 @@
 extern FILE * l;
 extern FS * fs;
 
-int fentry::write_buf(leveldb::WriteBatch & batch,
+int fentry::write_buf(batch_t & batch,
                       const char * buf,
                       off_t size, size_t offset)
 {
 
 	int blocksize = fs->blocksize;
-	leveldb::DB * db = fs->db;
 
 	int cur_block  = offset / blocksize;
 	int cur_offset = offset;
@@ -29,17 +28,17 @@ int fentry::write_buf(leveldb::WriteBatch & batch,
 	int upto = 1;
 
 	int r = offset % blocksize;
-	leveldb::ReadOptions options;
 
-	std::string base = key();
+	block_key key;
+	key.type = type();
+	memcpy(key.inode, inode, sizeof(inode));
+	key.blockno = -1;
 
 	if (r != 0) {
-		std::string key = base;
-		int tmp = htonl(cur_block);
-		key.insert(key.end(), (char*)&tmp, (char*)&tmp + sizeof(tmp));
+		key.blockno = htonl(cur_block);
 		
 		std::string value;
-		leveldb::Status st = db->Get(options, key, &value);
+		fs->read(key, value); // TODO: check status
 
 		value.resize(blocksize);
 
@@ -49,7 +48,7 @@ int fentry::write_buf(leveldb::WriteBatch & batch,
 		value.resize(r+upto);
 
 //		fprintf(l, "write(1)key %s\n", stringify(key).c_str());
-		batch.Put(key, value);
+		batch.push_back(operation(key, operation::PUT, value));
 		write_size += upto;
 
 		p +=  upto;
@@ -62,17 +61,16 @@ int fentry::write_buf(leveldb::WriteBatch & batch,
 	}
 
 	while (upto > 0) {
-		std::string key = base;
-		int tmp = htonl(cur_block);
-		key.insert(key.end(), (char*)&tmp, (char*)&tmp + sizeof(tmp));
-
-		std::string value;
+		key.blockno = htonl(cur_block);
+		
 		upto = std::min(buf + size - p, (long)blocksize);
 		if (upto == 0) {
 			break;
 		}
 //		fprintf(l, "write key %s\n", stringify(key).c_str());
-		batch.Put(key, leveldb::Slice(p, upto));
+
+		std::string value(p, upto);
+		batch.push_back(operation(key, operation::PUT, value));
 		write_size += upto;
 		p += upto;
 		cur_block ++;
@@ -95,15 +93,16 @@ int fentry::read_buf(char * buf,
                      off_t size, size_t offset)
 {
 	int blocksize = fs->blocksize;
-	leveldb::DB * db = fs->db;
 
 	int cur_block  = offset / blocksize;
 	int cur_offset = offset;
 	int read_size = 0;
 	char * p = buf;
-	leveldb::ReadOptions options;
 
-	std::string base = key();
+	block_key key;
+	key.type = type();
+	memcpy(key.inode, inode, sizeof(inode));
+	key.blockno = -1;
 
 	st.st_atime = time(0);
 
@@ -111,25 +110,23 @@ int fentry::read_buf(char * buf,
 	        name.c_str(), st.st_size, size, offset);
 
 	while (cur_offset < st.st_size && cur_offset < offset+size) {
-		std::string key = base;
-		int tmp = htonl(cur_block);
-		key.insert(key.end(), (char*)&tmp, (char*)&tmp + sizeof(tmp));
+		key.blockno = htonl(cur_block);
 
 		std::string value;
-		leveldb::Status status = db->Get(options, key, &value);
+		bool status = fs->read(key, value); // TODO: check status
 
-		fprintf(l, " try key %s %d %d\n",
-		        stringify(key).c_str(),
-		        cur_offset, cur_block);
+//		fprintf(l, " try key %s %d %d\n",
+//		        stringify(key).c_str(),
+//		        cur_offset, cur_block);
 
-		if (!status.ok()) {
-			fprintf(l, "cannot read key %s -> %s\n",
-			        stringify(key).c_str(), status.ToString().c_str());
+		if (!status) {
+//			fprintf(l, "cannot read key %s -> %s\n",
+//			        stringify(key).c_str(), status.ToString().c_str());
 			break;
 		}
-		fprintf(l, "read key %s %d %d\n",
-		        stringify(key).c_str(),
-		        cur_offset, cur_block);
+//		fprintf(l, "read key %s %d %d\n",
+//		        stringify(key).c_str(),
+//		        cur_offset, cur_block);
 		int upto = std::min(buf + size - p, (long)value.size());
 		read_size += upto;
 		memcpy(p, value.c_str() + cur_offset % blocksize, upto);
@@ -143,33 +140,32 @@ int fentry::read_buf(char * buf,
 	return read_size;
 }
 
-void fentry::remove(leveldb::WriteBatch & batch)
+void fentry::remove(batch_t & batch)
 {
 	int blocksize = fs->blocksize;
-	leveldb::DB * db = fs->db;
 
 	size_t offset = 0;
 	int cur_block  = offset / blocksize;
 	int cur_offset = offset;
 
-	std::string base = key();
+	block_key key;
+	key.type = type();
+	memcpy(key.inode, inode, sizeof(inode));
+	key.blockno = -1;
 
 	while (cur_offset < st.st_size) {
-		std::string key = base;
-		int tmp = htonl(cur_block);
-		key.insert(key.end(), (char*)&tmp, (char*)&tmp + sizeof(tmp));
+		key.blockno = htonl(cur_block);
 
-		batch.Delete(key);
+		batch.push_back(operation(key, operation::DELETE, std::string()));
 
 		cur_block ++;
 		cur_offset = cur_block * blocksize;
 	}
 }
 
-void fentry::truncate(leveldb::WriteBatch & batch, size_t new_size)
+void fentry::truncate(batch_t & batch, size_t new_size)
 {
 	int blocksize = fs->blocksize;
-	leveldb::DB * db = fs->db;
 
 	if (new_size >= st.st_size) {
 		return;
@@ -183,31 +179,30 @@ void fentry::truncate(leveldb::WriteBatch & batch, size_t new_size)
 	// rewrite first block and delete last
 
 	int r = offset % blocksize;
-	leveldb::ReadOptions options;
 
-	std::string base = key();
+	block_key key;
+	key.type = type();
+	memcpy(key.inode, inode, sizeof(inode));
+	key.blockno = -1;
 
 	if (r != 0) {
-		std::string key = base;
-		int tmp = htonl(cur_block);
-		key.insert(key.end(), (char*)&tmp, (char*)&tmp + sizeof(tmp));
+		key.blockno = htonl(cur_block);
 		
 		std::string value;
-		leveldb::Status st = db->Get(options, key, &value);
+		//TODO: check status
+		fs->read(key, value);
 
 		value.resize(r);
-		batch.Put(key, value);
+		batch.push_back(operation(key, operation::PUT, value));
 
 		cur_block ++;
 		cur_offset = cur_block * blocksize;
 	}
 
 	while (cur_offset < st.st_size) {
-		std::string key = base;
-		int tmp = htonl(cur_block);
-		key.insert(key.end(), (char*)&tmp, (char*)&tmp + sizeof(tmp));
+		key.blockno = htonl(cur_block);
 
-		batch.Delete(key);
+		batch.push_back(operation(key, operation::PUT, std::string()));
 
 		cur_block ++;
 		cur_offset = cur_block * blocksize;
