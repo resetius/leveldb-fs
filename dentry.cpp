@@ -53,13 +53,12 @@ bool entry::read()
 {
 	std::string value;
 
-	block_key key;
-	key.type = type();
-	memcpy(key.inode, inode, sizeof(inode));
-	key.blockno = -1;	
+	block_key key(type(), inode);
 
 	if (!fs->read(key, value)) {
-		fprintf(l, "key not found '%s'\n", name.c_str());
+//		fprintf(l, "key '%s' not found '%s'\n",
+//		        key.tostring().c_str(),
+//		        name.c_str());
 		return false;
 	}
 
@@ -103,10 +102,10 @@ bool entry::read()
 			memcpy(d->inode, inode.c_str(), sizeof(d->inode)); //TODO: ugly
 			if (d->read()) {
 				entries[name] = boost::shared_ptr<entry>(d);
-//				fprintf(l, "adding object to '%s' -> %s %lu\n",
-//				        this->name.c_str(),
-//				        stringify(d->key()).c_str(),
-//				        d->st.st_size);
+				//fprintf(l, "adding object to '%s' -> %s %lu\n",
+				//        this->name.c_str(),
+				//        stringify(d->key()).c_str(),
+				//        d->st.st_size);
 			} else {
 				// TODO: error
 				// TODO: make broken entry
@@ -134,8 +133,6 @@ void entry::write(batch_t & batch)
 	e.set_ctime(st.st_ctime);
 	e.set_size(st.st_size);
 
-//	fprintf(l, "writing entry '%s' \n", name.c_str());
-
 	for (entries_t::iterator it = entries.begin(); it != entries.end(); ++it) {
 		proto::entry_child * c = e.add_children();
 		c->set_mode(it->second->st.st_mode);
@@ -149,10 +146,11 @@ void entry::write(batch_t & batch)
 
 	e.SerializeToString(&value); // TODO: check error
 
-	block_key key;
-	key.type = type();
-	memcpy(key.inode, inode, sizeof(inode));
-	key.blockno = -1;
+	block_key key(type(), inode);
+
+//	fprintf(l, "writing entry '%s' -> '%s' \n",
+//	        name.c_str(), key.tostring().c_str());
+	
 	batch.push_back(operation(key, operation::PUT, value));
 }
 
@@ -187,9 +185,6 @@ void dentry::fillstat(struct stat * s)
 
 void dentry::remove(batch_t & batch)
 {
-	block_key key;
-	key.type = type();
-	memcpy(key.inode, inode, sizeof(inode));
-	key.blockno = -1;
+	block_key key(type(), inode);
 	batch.push_back(operation(key, operation::DELETE, std::string()));
 }

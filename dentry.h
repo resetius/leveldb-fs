@@ -4,6 +4,7 @@
 #include "leveldb/write_batch.h"
 
 #include <sys/stat.h>
+#include <arpa/inet.h>
 
 #include <string>
 #include <uuid/uuid.h>
@@ -25,12 +26,45 @@ struct block_key
 	uuid_t inode;
 	int blockno;
 
+	bool meta;
+
 	int size() const {
-		if (blockno >= 0) {
+		if (!meta) {
 			return sizeof(type)+sizeof(inode)+sizeof(blockno);
 		} else {
 			return sizeof(type)+sizeof(inode);
 		}
+	}
+
+	std::string tostring() const {
+		std::string r;
+		r += type;
+		r += ";";
+		char buf[1024];
+		uuid_unparse(inode, buf);
+		r += buf;
+		r += ";";
+		snprintf(buf, sizeof(buf), "%04d", ntohl(blockno));
+		r += buf;
+		return r;
+	}
+
+	block_key(char type, uuid_t ino): type(type), blockno(-1), meta(true)
+	{
+		memcpy(inode, ino, sizeof(inode));
+	}
+
+	block_key(char type, uuid_t ino, int blockno):
+		type(type),
+		blockno(0),
+		meta(false)
+	{
+		memcpy(inode, ino, sizeof(inode));
+	}
+
+	void setblock(int block) {
+		blockno = htonl(block);
+		meta = false;
 	}
 };
 #pragma pack ( pop)

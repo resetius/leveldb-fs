@@ -29,13 +29,10 @@ int fentry::write_buf(batch_t & batch,
 
 	int r = offset % blocksize;
 
-	block_key key;
-	key.type = type();
-	memcpy(key.inode, inode, sizeof(inode));
-	key.blockno = -1;
+	block_key key(type(), inode, 0);
 
 	if (r != 0) {
-		key.blockno = htonl(cur_block);
+		key.setblock(cur_block);
 		
 		std::string value;
 		fs->read(key, value); // TODO: check status
@@ -61,7 +58,7 @@ int fentry::write_buf(batch_t & batch,
 	}
 
 	while (upto > 0) {
-		key.blockno = htonl(cur_block);
+		key.setblock(cur_block);
 		
 		upto = std::min(buf + size - p, (long)blocksize);
 		if (upto == 0) {
@@ -99,10 +96,7 @@ int fentry::read_buf(char * buf,
 	int read_size = 0;
 	char * p = buf;
 
-	block_key key;
-	key.type = type();
-	memcpy(key.inode, inode, sizeof(inode));
-	key.blockno = -1;
+	block_key key(type(), inode, 0);
 
 	st.st_atime = time(0);
 
@@ -110,7 +104,7 @@ int fentry::read_buf(char * buf,
 	        name.c_str(), st.st_size, size, offset);
 
 	while (cur_offset < st.st_size && cur_offset < offset+size) {
-		key.blockno = htonl(cur_block);
+		key.setblock(cur_block);
 
 		std::string value;
 		bool status = fs->read(key, value); // TODO: check status
@@ -148,13 +142,10 @@ void fentry::remove(batch_t & batch)
 	int cur_block  = offset / blocksize;
 	int cur_offset = offset;
 
-	block_key key;
-	key.type = type();
-	memcpy(key.inode, inode, sizeof(inode));
-	key.blockno = -1;
+	block_key key(type(), inode, 0);
 
 	while (cur_offset < st.st_size) {
-		key.blockno = htonl(cur_block);
+		key.setblock(cur_block);
 
 		batch.push_back(operation(key, operation::DELETE, std::string()));
 
@@ -180,13 +171,10 @@ void fentry::truncate(batch_t & batch, size_t new_size)
 
 	int r = offset % blocksize;
 
-	block_key key;
-	key.type = type();
-	memcpy(key.inode, inode, sizeof(inode));
-	key.blockno = -1;
+	block_key key(type(), inode, 0);
 
 	if (r != 0) {
-		key.blockno = htonl(cur_block);
+		key.setblock(cur_block);
 		
 		std::string value;
 		//TODO: check status
@@ -200,7 +188,7 @@ void fentry::truncate(batch_t & batch, size_t new_size)
 	}
 
 	while (cur_offset < st.st_size) {
-		key.blockno = htonl(cur_block);
+		key.setblock(cur_block);
 
 		batch.push_back(operation(key, operation::PUT, std::string()));
 

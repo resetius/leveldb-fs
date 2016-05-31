@@ -7,7 +7,7 @@ FS::FS()
 {
 	maxhandles=1000000;
 	blocksize=4*1024;
-	parts=10;
+	parts=4;
 
 	l = fopen("/var/tmp/fuselog.log", "w");
 	setbuf(l, 0);
@@ -27,6 +27,7 @@ void FS::open(bool create)
 	leveldb::Options options;
     options.create_if_missing = create;
     options.compression = leveldb::kNoCompression;
+    options.write_buffer_size = 32*1024*1024;
     
     leveldb::Status status;
     status = leveldb::DB::Open(options, dbroot + "/dentry", &meta);
@@ -131,6 +132,8 @@ bool FS::read(const block_key & key, std::string & value)
 	}
 
 	status = db->Get(readOptions, leveldb::Slice((char*)&key, key.size()), &value);
+//	fprintf(l, "get key '%s'\n", key.tostring().c_str());
+	return status.ok();
 }
 
 bool FS::write(batch_t & batch, bool sync)
@@ -162,9 +165,11 @@ bool FS::write(batch_t & batch, bool sync)
 		leveldb::Slice slice((char*)&batch[i].key, batch[i].key.size());
 		switch (batch[i].type) {
 		case operation::DELETE:
+//			fprintf(l, "delete key '%s'\n", batch[i].key.tostring().c_str());
 			b->Delete(slice);
 			break;
 		case operation::PUT:
+//			fprintf(l, "put key '%s'\n", batch[i].key.tostring().c_str());
 			b->Put(slice, batch[i].data);
 			break;
 		}
@@ -172,9 +177,11 @@ bool FS::write(batch_t & batch, bool sync)
 
 	leveldb::Status status;
 	if (db) {
+//		fprintf(l, "flushin metadata (%d)\n", (int)sync);
 		status = db->Write(writeOptions, &dbatch);
 	}
 	if (fb) {
+//		fprintf(l, "flushin data (%d)\n", (int)sync);
 		status = fb->Write(writeOptions, &fbatch);
 	}
 	

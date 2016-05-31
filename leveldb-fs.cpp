@@ -69,6 +69,9 @@ extern FS * fs;
 
 
 static void * ldbfs_init(struct fuse_conn_info *conn) {
+//	conn->direct_io = 1;
+	conn->max_write = 32*1024*1024;
+	conn->want |= FUSE_CAP_BIG_WRITES;
 	fs = new FS();
 	fs->mount();
 }
@@ -183,8 +186,8 @@ static int ldbfs_unlink(const char *p)
 		std::swap(m1, m2);
 	}
 
-	boost::unique_lock<boost::mutex> scoped_lock1(*m1);
-	boost::unique_lock<boost::mutex> scoped_lock2(*m2);
+//	boost::unique_lock<boost::mutex> scoped_lock1(*m1);
+//	boost::unique_lock<boost::mutex> scoped_lock2(*m2);
 
 	batch_t batch;
 
@@ -214,7 +217,7 @@ static int ldbfs_rmdir(const char *p)
 		return -ENOENT;
 	}
 
-	boost::unique_lock<boost::mutex> scoped_lock(e->mutex);
+//	boost::unique_lock<boost::mutex> scoped_lock(e->mutex);
 	if (!e->entries.empty()) {
 		return -1;
 	}
@@ -294,7 +297,7 @@ static int ldbfs_truncate(const char *p, off_t size)
 		return -ENOENT;
 	}
 
-	boost::unique_lock<boost::mutex> scoped_lock(e->mutex);
+//	boost::unique_lock<boost::mutex> scoped_lock(e->mutex);
 
 	batch_t batch;
 
@@ -343,6 +346,8 @@ static int ldbfs_create(const char *p, mode_t mode,
 	dst->write(batch);
 	fs->write(batch, true); // TODO: check status
 
+	fi->direct_io = 1;
+
 	fs->allocate_handle(r, fi);
 
 	return 0;
@@ -368,6 +373,7 @@ static int ldbfs_release(const char *path, struct fuse_file_info *fi)
 		return -1;
 	}
 
+//	fi->direct_io = 1;
 	fs->release_handle(fi->fh);
 
 	return 0;
@@ -384,7 +390,7 @@ static int ldbfs_read(
 		return -1;
 	}
 
-	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
+//	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
 
 	return d->read_buf(buf, size, offset);	
 }
@@ -400,7 +406,7 @@ static int ldbfs_write(
 		return -1;
 	}
 
-	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
+//	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
 
 	batch_t batch;
 
