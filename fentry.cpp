@@ -100,8 +100,8 @@ int fentry::read_buf(char * buf,
 
 	st.st_atime = time(0);
 
-	fprintf(l, "read %s <- %lu, %lu %lu\n",
-	        name.c_str(), st.st_size, size, offset);
+//	fprintf(l, "read %s <- %lu, %lu %lu\n",
+//	        name.c_str(), st.st_size, size, offset);
 
 	while (cur_offset < st.st_size && cur_offset < offset+size) {
 		key.setblock(cur_block);
@@ -109,19 +109,29 @@ int fentry::read_buf(char * buf,
 		std::string value;
 		bool status = fs->read(key, value); // TODO: check status
 
+		if (value.size() < blocksize) {
+			value.resize(blocksize);
+		}
+
 //		fprintf(l, " try key %s %d %d\n",
 //		        stringify(key).c_str(),
 //		        cur_offset, cur_block);
 
-		if (!status) {
+//		if (!status) {
 //			fprintf(l, "cannot read key %s -> %s\n",
 //			        stringify(key).c_str(), status.ToString().c_str());
-			break;
-		}
+//			break;
+//		}
 //		fprintf(l, "read key %s %d %d\n",
 //		        stringify(key).c_str(),
 //		        cur_offset, cur_block);
-		int upto = std::min(buf + size - p, (long)value.size());
+		int upto = std::min(
+			buf + size - p,
+			(long)value.size());
+		if (cur_offset + upto > st.st_size) {
+			upto = st.st_size - cur_offset;
+		}
+		
 		read_size += upto;
 		memcpy(p, value.c_str() + cur_offset % blocksize, upto);
 		p += upto;
@@ -129,7 +139,7 @@ int fentry::read_buf(char * buf,
 		cur_offset = cur_block * blocksize;
 	}
 
-	fprintf(l, "read done %s -> %d\n", name.c_str(), read_size);
+//	fprintf(l, "read done %s -> %d\n", name.c_str(), read_size);
 
 	return read_size;
 }
@@ -154,14 +164,30 @@ void fentry::remove(batch_t & batch)
 	}
 }
 
+void fentry::grow(batch_t & batch, size_t new_size)
+{
+	int blocksize = fs->blocksize;
+
+	if (new_size <= st.st_size) {
+		return;
+	}
+
+	st.st_size = new_size;
+	write(batch);
+}
+
 void fentry::truncate(batch_t & batch, size_t new_size)
 {
 	int blocksize = fs->blocksize;
 
-	if (new_size >= st.st_size) {
+	if (new_size == st.st_size) {
 		return;
 	}
-
+	
+	if (new_size > st.st_size) {
+		grow(batch, new_size);
+		return;
+	}
 
 	size_t offset = new_size;
 	int cur_block  = offset / blocksize;
@@ -174,23 +200,26 @@ void fentry::truncate(batch_t & batch, size_t new_size)
 	block_key key(type, inode, 0);
 
 	if (r != 0) {
-		key.setblock(cur_block);
-		
-		std::string value;
-		//TODO: check status
-		fs->read(key, value);
+		// will skip it on read;
 
-		value.resize(r);
-		batch.push_back(operation(key, operation::PUT, value));
+//		key.setblock(cur_block);
+		
+//		std::string value;
+//		//TODO: check status
+//		fs->read(key, value);
+
+//		value.resize(r);
+//		batch.push_back(operation(key, operation::PUT, value));
 
 		cur_block ++;
 		cur_offset = cur_block * blocksize;
 	}
 
+	// truncate
 	while (cur_offset < st.st_size) {
 		key.setblock(cur_block);
 
-		batch.push_back(operation(key, operation::PUT, std::string()));
+		batch.push_back(operation(key, operation::DELETE, std::string()));
 
 		cur_block ++;
 		cur_offset = cur_block * blocksize;

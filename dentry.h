@@ -142,6 +142,7 @@ struct fentry: public entry {
 
 	void remove(batch_t & batch);
 	void truncate(batch_t & batch, size_t new_size);
+	void grow(batch_t & batch, size_t new_size);
 };
 
 struct dentry: public entry {
