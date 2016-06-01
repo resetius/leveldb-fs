@@ -68,11 +68,14 @@ extern FS * fs;
 // block: b,inumber,bnumber
 
 
+std::string dbpath;
+std::string logpath;
+
 static void * ldbfs_init(struct fuse_conn_info *conn) {
 //	conn->direct_io = 1;
 	conn->max_write = 32*1024*1024;
 	conn->want |= FUSE_CAP_BIG_WRITES;
-	fs = new FS();
+	fs = new FS(dbpath, logpath);
 	fs->mount();
 }
 
@@ -537,6 +540,9 @@ int main(int argc, char *argv[])
 	ldbfs_oper.init = ldbfs_init;
 
 	umask(0);
+
+	dbpath = "/var/tmp/testdb-fs";
+	logpath = "/var/tmp/fuselog.log";
 
 	return fuse_main(argc, argv, &ldbfs_oper, NULL);
 }

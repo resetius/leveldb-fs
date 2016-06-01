@@ -6,19 +6,19 @@
 FILE * l = 0;
 FS * fs = 0;
 
-FS::FS()
+FS::FS(const std::string & dbpath, const std::string & log)
 {
 	maxhandles=1000000;
 	blocksize=4*1024;
 	parts=4;
 
-	l = fopen("/var/tmp/fuselog.log", "w");
+	l = fopen(log.c_str(), "w");
 	setbuf(l, 0);
 
 
 	fprintf(l, "init\n");
 
-	dbroot = "/var/tmp/testdb-fs";
+	dbroot = dbpath;
 
     handles.resize(maxhandles);
     

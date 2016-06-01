@@ -39,5 +39,5 @@ struct FS
 	void mount();
 	void open(bool create);
 
-	FS();
+	FS(const std::string & dbpath, const std::string & log);
 };
