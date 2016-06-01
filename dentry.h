@@ -122,6 +122,10 @@ struct entry: public boost::enable_shared_from_this<entry> {
 	virtual void remove(batch_t & batch) {}
 	virtual void truncate(batch_t & batch, size_t new_size) {}
 
+	void add_child(const boost::shared_ptr<entry> & e);
+	void remove_child(const std::string & name);
+	void remove_child(const boost::shared_ptr<entry> & e);
+
 	static std::string stringify(const std::string & key);
 };
 

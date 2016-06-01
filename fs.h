@@ -5,11 +5,14 @@
 #include <vector>
 #include <boost/unordered_set.hpp>
 #include <boost/shared_ptr.hpp>
+#include <boost/thread/mutex.hpp>
 
 #include "dentry.h"
 
 struct FS
 {
+	boost::mutex mutex;
+
 	int maxhandles;
 	int blocksize;
 	leveldb::DB * meta;

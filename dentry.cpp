@@ -178,12 +178,35 @@ boost::shared_ptr<entry> entry::find(const std::string & path)
 
 	size_t pos = path.find("/");
 	std::string subname = path.substr(0, pos);
-	entries_t::iterator it = entries.find(subname);
-	if (it == entries.end()) {
-		return boost::shared_ptr<entry>();
-	} else {
-		return it->second->find(path.substr(pos+1));
+
+	boost::shared_ptr<entry> e;
+	{
+		boost::unique_lock<boost::mutex> scoped_lock(mutex);
+		entries_t::iterator it = entries.find(subname);
+		if (it == entries.end()) {
+			return boost::shared_ptr<entry>();
+		}
+		e = it->second;		
 	}
+	return e->find(path.substr(pos+1));
+}
+
+void entry::add_child(const boost::shared_ptr<entry> & e)
+{
+	boost::unique_lock<boost::mutex> scoped_lock(mutex);
+	entries[e->name] = e;
+}
+
+void entry::remove_child(const std::string & name)
+{
+	boost::unique_lock<boost::mutex> scoped_lock(mutex);
+	entries.erase(name);
+}
+
+void entry::remove_child(const boost::shared_ptr<entry> & e)
+{
+	boost::unique_lock<boost::mutex> scoped_lock(mutex);
+	entries.erase(e->name);
 }
 
 void entry::fillstat(struct stat * s)

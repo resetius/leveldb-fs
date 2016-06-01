@@ -118,6 +118,7 @@ static int ldbfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 	filler(buf, ".", NULL, 0);
 	filler(buf, "..", NULL, 0);
 
+	boost::unique_lock<boost::mutex> scoped_lock(d->mutex);
 	for (entries_t::iterator it = d->entries.begin();
 	     it != d->entries.end(); ++it)
 	{
@@ -150,7 +151,7 @@ static int ldbfs_mkdir(const char *p, mode_t mode)
 	fprintf(l, "parent: '%s'/'%s'\n", dst->name.c_str(), name.c_str());
 
 	boost::shared_ptr<entry> r(new dentry(name));
-	dst->entries[name] = r;
+	dst->add_child(r);
 
 	batch_t batch;
 
@@ -195,7 +196,7 @@ static int ldbfs_unlink(const char *p)
 	batch_t batch;
 
 	e->remove(batch);
-	dst->entries.erase(e->name);
+	dst->remove_child(e);
 	dst->write(batch);
 
 	bool status = fs->write(batch, true); //TODO: check status
@@ -266,14 +267,14 @@ static int ldbfs_rename(const char *f, const char *t)
 			return -1;
 		}
 		dst->remove(batch);
-		dst_parent->entries.erase(dst->name);
+		dst_parent->remove_child(dst);
 	}
 
 	// TODO: locks
 
-	src_parent->entries.erase(src->name);
+	src_parent->remove_child(src);
 	src->name = new_name;
-	dst_parent->entries[new_name] = src;
+	dst_parent->add_child(src);
 
 	src_parent->write(batch);
 	dst_parent->write(batch);
@@ -341,7 +342,7 @@ static int ldbfs_create(const char *p, mode_t mode,
 	}
 
 	boost::shared_ptr<entry> r(new fentry(name));
-	dst->entries[name] = r;
+	dst->add_child(r);
 
 	batch_t batch;
 
@@ -489,7 +490,7 @@ static int ldbfs_symlink(const char * src, const char * dst)
 	}
 	d.reset(new symlink_entry(fs->filename(dst_path)));
 	d->target_name = fs->filename(src_path);
-	parent->entries[d->name] = d;
+	parent->add_child(d);
 
 	batch_t batch;
 	parent->write(batch);

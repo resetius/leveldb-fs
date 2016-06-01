@@ -98,7 +98,7 @@ std::string FS::filename(const std::string & path)
 
 uint64_t FS::allocate_handle(const boost::shared_ptr<entry> & r, struct fuse_file_info *fi)
 {
-	// TODO: lock
+	boost::unique_lock<boost::mutex> scoped_lock(mutex);
 	uint64_t fh = 0;
 	for (; allocated_handles.find(fh) != allocated_handles.end(); ++fh);
 
@@ -112,6 +112,7 @@ uint64_t FS::allocate_handle(const boost::shared_ptr<entry> & r, struct fuse_fil
 
 void FS::release_handle(uint64_t h)
 {
+	boost::unique_lock<boost::mutex> scoped_lock(mutex);
 	allocated_handles.erase(h);
 	handles[h].reset();
 }
