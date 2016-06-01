@@ -18,7 +18,11 @@ add_custom_command(OUTPUT
 
 include_directories(
   ${FUSE_INCLUDE_DIRS}
-  ${CMAKE_CURRENT_BINARY_DIR})
+  ${CMAKE_CURRENT_BINARY_DIR}
+  ${CMAKE_SOURCE_DIR}/contrib/leveldb/include
+  )
+
+link_directories(${CMAKE_SOURCE_DIR}/contrib/leveldb)
 
 add_library(fs
   dentry.cpp
@@ -43,9 +47,9 @@ target_link_libraries(test-leveldb
   pthread leveldb)
 
 target_link_libraries(leveldb-fs fs
-  ${FUSE_LIBRARIES} leveldb uuid protobuf boost_system)
+  ${FUSE_LIBRARIES} leveldb uuid protobuf boost_system pthread)
 target_link_libraries(mkfs.ldbfs fs
-  ${FUSE_LIBRARIES} leveldb uuid protobuf boost_system)
+  ${FUSE_LIBRARIES} leveldb uuid protobuf boost_system pthread)
 target_compile_options(leveldb-fs PUBLIC ${FUSE_CFLAGS_OTHER})
 target_compile_options(fs PUBLIC ${FUSE_CFLAGS_OTHER})
 target_compile_options(mkfs.ldbfs PUBLIC ${FUSE_CFLAGS_OTHER})

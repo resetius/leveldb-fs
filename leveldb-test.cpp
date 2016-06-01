@@ -3,6 +3,8 @@
 
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"
+#include "leveldb/filter_policy.h"
+#include "leveldb/env.h"
 
 leveldb::DB* db;
 int blocksize = 10000;
@@ -19,7 +21,7 @@ void * writer(void * a)
 
 	size_t written = 0;
 
-	int batchc = 1000;
+	int batchc = 10;
 
 	char key[batchc][256];
 	long block = 0;
@@ -50,9 +52,15 @@ int main(int argc, char ** argv)
 {
 	int threads = 50;
 	leveldb::Options options;
+
 	options.create_if_missing = true;
 	options.compression = leveldb::kNoCompression;
-	options.write_buffer_size = 4*1024*1024;
+//	options.write_buffer_size = 4*1024*1024;
+//
+	options.filter_policy=leveldb::NewBloomFilterPolicy2(16);
+    options.write_buffer_size=62914560;  // 60Mbytes
+    options.total_leveldb_mem=2684354560; // 2.5Gbytes (details below)
+	options.env=leveldb::Env::Default();
 
 	leveldb::Status status = leveldb::DB::Open(options, "./testdb", &db);
 

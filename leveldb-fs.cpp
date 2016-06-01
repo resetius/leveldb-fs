@@ -447,6 +447,70 @@ static int ldbfs_fsync(const char *path, int isdatasync,
 	return 0;
 }
 
+static int ldbfs_readlink(const char * link, char * target, size_t n)
+{
+	std::string path = link+1;
+	boost::shared_ptr<entry> s(fs->find(path));
+	if (!s) {
+		// not exists
+		return -1;
+	}
+
+	memset(target, 0, n);
+	memcpy(target, s->target_name.c_str(), std::min(n, s->target_name.size()));
+	return 0;
+}
+
+static int ldbfs_symlink(const char * src, const char * dst)
+{
+	// TODO: here may be links to external filesystem
+	std::string src_path = src+1;
+	std::string dst_path = dst+1;
+	boost::shared_ptr<entry> s(fs->find(src_path));
+	if (!s) {
+		// not exists
+		fprintf(l, "unknown source '%s'\n", src);
+		return -1;
+	}
+	boost::shared_ptr<entry> d(fs->find(dst_path));
+	if (d) {
+		// already exists
+		fprintf(l, "already exists dest '%s'\n", dst);
+		return -1;
+	}
+	boost::shared_ptr<entry> parent(fs->find_parent(dst_path));
+	if (!parent) {
+		// not exists
+		fprintf(l, "unknown parent '%s'\n", dst);
+		return -1;
+	}
+	d.reset(new symlink_entry(fs->filename(dst_path)));
+	d->target_name = fs->filename(src_path);
+	parent->entries[d->name] = d;
+
+	batch_t batch;
+	parent->write(batch);
+	fs->write(batch, sync);
+
+	return 0;
+}
+
+static int ldbfs_chown(const char * src, uid_t uid, gid_t gid)
+{
+	std::string path = src+1;
+	boost::shared_ptr<entry> s(fs->find(path));
+	if (!s) {
+		// not exists
+		fprintf(l, "unknown source '%s'\n", src);
+		return -1;
+	}
+
+	s->st.st_uid = uid;
+	s->st.st_gid = gid;
+
+	return 0;
+}
+
 static struct fuse_operations ldbfs_oper;
 
 int main(int argc, char *argv[])
@@ -466,6 +530,9 @@ int main(int argc, char *argv[])
 	ldbfs_oper.rmdir = ldbfs_rmdir;
 	ldbfs_oper.rename = ldbfs_rename;
 	ldbfs_oper.utime = ldbfs_utime;
+//	ldbfs_oper.symlink = ldbfs_symlink;
+//	ldbfs_oper.readlink = ldbfs_readlink;
+//	ldbfs_oper.chown = ldbfs_chown;
 
 	ldbfs_oper.init = ldbfs_init;
 

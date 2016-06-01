@@ -42,18 +42,26 @@ dentry::dentry(const std::string & name): entry(name)
 	if (name.empty()) {
 		memset(inode, 0, sizeof(inode));
 	}
+	type = 'd';
 }
 
 fentry::fentry(const std::string & name): entry(name)
 {
 	st.st_mode = S_IFREG | 0666;
+	type = 'f';
+}
+
+symlink_entry::symlink_entry(const std::string & name): dentry(name)
+{
+	st.st_mode = S_IFLNK | 0666;
+	type = 's';
 }
 
 bool entry::read()
 {
 	std::string value;
 
-	block_key key(type(), inode);
+	block_key key(type, inode);
 
 	if (!fs->read(key, value)) {
 //		fprintf(l, "key '%s' not found '%s'\n",
@@ -95,6 +103,10 @@ bool entry::read()
 		} else if (c.mode() & S_IFREG) {
 			fprintf(l, "addin file to '%s'\n", name.c_str());
 			d = new fentry(name);
+		} else if (c.mode() & S_IFLNK) {
+			fprintf(l, "addin symlink to '%s'\n", name.c_str());
+			d = new symlink_entry(name);
+			d->target_name = c.target_name();
 		}
 
 		if (d) {
@@ -138,6 +150,9 @@ void entry::write(batch_t & batch)
 		c->set_mode(it->second->st.st_mode);
 		c->set_ino(it->second->inode, sizeof(it->second->inode));
 		c->set_name(it->second->name);
+		if (it->second->type == 's') {
+			c->set_target_name(it->second->target_name);
+		}
 
 //		fprintf(l, "adding to entry '%s' -> %u,  %s \n",
 //		        name.c_str(), it->second->st.st_mode,
@@ -146,7 +161,7 @@ void entry::write(batch_t & batch)
 
 	e.SerializeToString(&value); // TODO: check error
 
-	block_key key(type(), inode);
+	block_key key(type, inode);
 
 //	fprintf(l, "writing entry '%s' -> '%s' \n",
 //	        name.c_str(), key.tostring().c_str());
@@ -171,13 +186,7 @@ boost::shared_ptr<entry> entry::find(const std::string & path)
 	}
 }
 
-void fentry::fillstat(struct stat * s)
-{
-	memcpy(s, &st, sizeof(st));
-	memcpy(&s->st_ino, inode, sizeof(s->st_ino)); 
-}
-
-void dentry::fillstat(struct stat * s)
+void entry::fillstat(struct stat * s)
 {
 	memcpy(s, &st, sizeof(st));
 	memcpy(&s->st_ino, inode, sizeof(s->st_ino)); 
@@ -185,6 +194,6 @@ void dentry::fillstat(struct stat * s)
 
 void dentry::remove(batch_t & batch)
 {
-	block_key key(type(), inode);
+	block_key key(type, inode);
 	batch.push_back(operation(key, operation::DELETE, std::string()));
 }

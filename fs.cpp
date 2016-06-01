@@ -1,3 +1,6 @@
+#include "leveldb/filter_policy.h"
+#include "leveldb/env.h"
+
 #include "fs.h"
 
 FILE * l = 0;
@@ -27,7 +30,12 @@ void FS::open(bool create)
 	leveldb::Options options;
     options.create_if_missing = create;
     options.compression = leveldb::kNoCompression;
-    options.write_buffer_size = 32*1024*1024;
+//    options.write_buffer_size = 32*1024*1024;
+
+    options.filter_policy=leveldb::NewBloomFilterPolicy2(16);
+    options.write_buffer_size=62914560;  // 60Mbytes
+    options.total_leveldb_mem=2684354560; // 2.5Gbytes (details below)
+    options.env=leveldb::Env::Default();
     
     leveldb::Status status;
     status = leveldb::DB::Open(options, dbroot + "/dentry", &meta);

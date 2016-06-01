@@ -8,6 +8,7 @@ message entry {
     optional uint32 mode = 1;    /* protection */
     optional bytes ino = 2;
     optional string name = 3;
+    optional string target_name = 4; /* for symlinks */
   }
   
   optional uint32    mode = 2;    /* protection */

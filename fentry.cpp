@@ -29,7 +29,7 @@ int fentry::write_buf(batch_t & batch,
 
 	int r = offset % blocksize;
 
-	block_key key(type(), inode, 0);
+	block_key key(type, inode, 0);
 
 	if (r != 0) {
 		key.setblock(cur_block);
@@ -96,7 +96,7 @@ int fentry::read_buf(char * buf,
 	int read_size = 0;
 	char * p = buf;
 
-	block_key key(type(), inode, 0);
+	block_key key(type, inode, 0);
 
 	st.st_atime = time(0);
 
@@ -142,7 +142,7 @@ void fentry::remove(batch_t & batch)
 	int cur_block  = offset / blocksize;
 	int cur_offset = offset;
 
-	block_key key(type(), inode, 0);
+	block_key key(type, inode, 0);
 
 	while (cur_offset < st.st_size) {
 		key.setblock(cur_block);
@@ -171,7 +171,7 @@ void fentry::truncate(batch_t & batch, size_t new_size)
 
 	int r = offset % blocksize;
 
-	block_key key(type(), inode, 0);
+	block_key key(type, inode, 0);
 
 	if (r != 0) {
 		key.setblock(cur_block);

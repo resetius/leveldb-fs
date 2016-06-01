@@ -93,7 +93,9 @@ struct entry: public boost::enable_shared_from_this<entry> {
 	struct stat st;
 
 	uuid_t inode;
+	char type;
 	std::string name;
+	std::string target_name; // for symlink
 	entries_t entries;
 
 	entry(const std::string & name);
@@ -103,7 +105,7 @@ struct entry: public boost::enable_shared_from_this<entry> {
 
 	boost::shared_ptr<entry> find(const std::string & path);
 
-	virtual void fillstat(struct stat * s) = 0;
+	virtual void fillstat(struct stat * s);
 	virtual int write_buf(batch_t & batch,
 	                      const char * buf,
 	                      off_t size, size_t offset)
@@ -116,8 +118,6 @@ struct entry: public boost::enable_shared_from_this<entry> {
 	{
 		return 0;
 	}
-
-	virtual char type() = 0;
 
 	virtual void remove(batch_t & batch) {}
 	virtual void truncate(batch_t & batch, size_t new_size) {}
@@ -138,19 +138,13 @@ struct fentry: public entry {
 
 	void remove(batch_t & batch);
 	void truncate(batch_t & batch, size_t new_size);
-
-	char type() {
-		return 'f';
-	}
-
-	void fillstat(struct stat * s);
 };
 
 struct dentry: public entry {
 	dentry(const std::string & name);
-	void fillstat(struct stat * s);
 	void remove(batch_t & batch);
-	char type() {
-		return 'd';
-	}
+};
+
+struct symlink_entry: public dentry {	
+	symlink_entry(const std::string & name);
 };
