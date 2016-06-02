@@ -18,7 +18,7 @@ struct bucket
 	bool sync;
 	bool read(const block_key & key, std::string & value);
 	void add_op(const operation & op);
-	bool flush();
+	bool flush(uuid_t inode);
 };
 
 struct FS

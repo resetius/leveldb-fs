@@ -176,7 +176,7 @@ void bucket::add_op(const operation & op)
 	batch.insert(std::make_pair(op.key, op));
 }
 
-bool bucket::flush()
+bool bucket::flush(uuid_t inode)
 {
 	leveldb::WriteBatch b;
 	boost::unique_lock<boost::mutex> scoped_lock(mutex);
@@ -192,6 +192,9 @@ bool bucket::flush()
 	{
 		const block_key & key = it->first;
 		operation & op = it->second;
+		if (!inode || memcmp(key.inode, inode, sizeof(key.inode)) != 0) {
+			continue;
+		}
 		leveldb::Slice slice((char*)&key, key.size());
 		switch (op.type) {
 		case operation::DELETE:
@@ -249,7 +252,7 @@ bool FS::write(batch_t & batch, bool sync)
 	bool ret = true;
 	for (int i = 0; i < parts+1; ++i) {
 		if (buckets[i].sync) {
-			ret &= buckets[i].flush();
+			ret &= buckets[i].flush(0);
 		}
 	}
 
@@ -261,5 +264,5 @@ bool FS::sync(const boost::shared_ptr<entry> & e)
 {
 	block_key key(e->type, e->inode, 0);
 	bucket & b = buckets[part(key)];
-	return b.flush();
+	return b.flush(e->inode);
 }
