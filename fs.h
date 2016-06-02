@@ -6,8 +6,20 @@
 #include <boost/unordered_set.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/thread/mutex.hpp>
+#include <map>
 
 #include "dentry.h"
+
+struct bucket
+{
+	boost::mutex mutex;
+	leveldb::DB * db;
+	std::map<block_key, operation> batch;
+	bool sync;
+	bool read(const block_key & key, std::string & value);
+	void add_op(const operation & op);
+	bool flush();
+};
 
 struct FS
 {
@@ -15,13 +27,14 @@ struct FS
 
 	int maxhandles;
 	int blocksize;
-	leveldb::DB * meta;
 	std::string dbroot;
 
-	int parts;
-	std::vector<leveldb::DB*> data;
-
+	// opened files
 	std::vector<boost::shared_ptr<entry> > handles;
+
+	int parts;
+	bucket * buckets;
+
 	boost::unordered_set<uint64_t> allocated_handles;
 
 	boost::shared_ptr<dentry> root;
@@ -41,6 +54,10 @@ struct FS
 	void mkfs();
 	void mount();
 	void open(bool create);
+
+	int part(const block_key & key);
+	bool sync(const boost::shared_ptr<entry> & e);
+
 
 	FS(const std::string & dbpath, const std::string & log);
 };

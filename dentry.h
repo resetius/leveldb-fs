@@ -49,6 +49,14 @@ struct block_key
 		return r;
 	}
 
+	block_key(const block_key & other)
+	{
+		type = other.type;
+		blockno = other.blockno;
+		meta = other.meta;
+		memcpy(inode, other.inode, sizeof(inode));
+	}
+
 	block_key(char type, uuid_t ino): type(type), blockno(-1), meta(true)
 	{
 		memcpy(inode, ino, sizeof(inode));
@@ -65,6 +73,25 @@ struct block_key
 	void setblock(int block) {
 		blockno = htonl(block);
 		meta = false;
+	}
+
+	bool operator < (const block_key & other) const {
+		if (type < other.type) {
+			return true;
+		} else if (type > other.type) {
+			return false;
+		} else {
+			int r = memcmp(inode, other.inode, sizeof(inode));
+			if (r < 0) {
+				return true;
+			} else if (r > 0) {
+				return false;
+			} else if (blockno < other.blockno) {
+				return true;
+			} else {
+				return false;
+			}
+		}
 	}
 };
 #pragma pack ( pop)

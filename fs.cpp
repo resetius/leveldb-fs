@@ -21,7 +21,8 @@ FS::FS(const std::string & dbpath, const std::string & log)
 	dbroot = dbpath;
 
     handles.resize(maxhandles);
-    
+
+    buckets = new bucket[parts+1];
 	root.reset(new dentry(""));
 }
 
@@ -38,12 +39,12 @@ void FS::open(bool create)
     options.env=leveldb::Env::Default();
     
     leveldb::Status status;
-    status = leveldb::DB::Open(options, dbroot + "/dentry", &meta);
-    data.resize(parts);
+    status = leveldb::DB::Open(options, dbroot + "/dentry", &buckets[0].db);
+    
     for (int i = 0; i < parts; ++i) {
 	    char buf[1024];
 	    snprintf(buf, sizeof(buf), "/fentry-%04d", i);
-	    status = leveldb::DB::Open(options, dbroot + buf, &data[i]);
+	    status = leveldb::DB::Open(options, dbroot + buf, &buckets[i+1].db);
     }
 }
 
@@ -114,7 +115,11 @@ void FS::release_handle(uint64_t h)
 {
 	boost::unique_lock<boost::mutex> scoped_lock(mutex);
 	allocated_handles.erase(h);
+	boost::shared_ptr<entry> e = handles[h];
 	handles[h].reset();
+	if (e) {
+		sync(e);
+	}
 }
 
 boost::shared_ptr<entry> FS::find_handle(uint64_t t)
@@ -122,27 +127,105 @@ boost::shared_ptr<entry> FS::find_handle(uint64_t t)
 	return handles[t];
 }
 
-bool FS::read(const block_key & key, std::string & value)
+int FS::part(const block_key & key)
 {
-	leveldb::ReadOptions readOptions;
-	leveldb::Status status;
-
-	leveldb::DB * db = 0;
-	
 	if (key.type == 'd') {
-		db = meta;
+		return 0;
 	} else {
-		uint64_t part;
-		memcpy(&part, key.inode, sizeof(part));
-		part = part % parts;
-		leveldb::DB * fbnew = data[part];
-		assert(db == 0 || fbnew == fb);
-		db = fbnew;
+		return *((uint64_t*)key.inode)%parts+1;
+	}
+}
+
+bool bucket::read(const block_key & key, std::string & value)
+{
+	boost::unique_lock<boost::mutex> scoped_lock(mutex);
+//	fprintf(l, "read %p\n", this);
+	std::map<block_key, operation>::iterator it = batch.find(key);
+	if (it == batch.end()) {
+		// read from ldb
+//		fprintf(l, "not found in cache '%s', cache size %d\n", key.tostring().c_str(), (int)batch.size());
+//		for (it = batch.begin(); it != batch.end(); ++it) {
+//			fprintf(l, "  -> '%s'\n", it->first.tostring().c_str());
+//		}
+		leveldb::ReadOptions readOptions;
+		leveldb::Status status;
+		status = db->Get(readOptions, leveldb::Slice((char*)&key, key.size()), &value);
+//		if (!status.ok()) {
+//			fprintf(l, "not found on disk '%s'\n", key.tostring().c_str());
+//		}
+		return status.ok();
+	} else if (it->second.type == operation::PUT) {
+//		fprintf(l, "found in cache '%s'\n", key.tostring().c_str());
+		value = it->second.data;
+//		fprintf(l, "value -> '%s'\n", value.c_str());
+		return true;
+	} else {
+//		fprintf(l, "delete found in cache '%s'\n", key.tostring().c_str());
+		value.clear();
+		return false;
+	}
+}
+
+void bucket::add_op(const operation & op)
+{
+	boost::unique_lock<boost::mutex> scoped_lock(mutex);
+//	fprintf(l, "add op to %p \n", this);
+	batch.erase(op.key);
+//	fprintf(l, "store in cache '%s' -> '%s'\n",
+//	        op.key.tostring().c_str(), op.data.c_str());
+	batch.insert(std::make_pair(op.key, op));
+}
+
+bool bucket::flush()
+{
+	leveldb::WriteBatch b;
+	boost::unique_lock<boost::mutex> scoped_lock(mutex);
+
+	if (batch.empty()) {
+		return true;
 	}
 
-	status = db->Get(readOptions, leveldb::Slice((char*)&key, key.size()), &value);
-//	fprintf(l, "get key '%s'\n", key.tostring().c_str());
+//	fprintf(l, "flush %p\n", this);
+
+	for (std::map<block_key, operation>::iterator it = batch.begin();
+	     it != batch.end(); ++it)
+	{
+		const block_key & key = it->first;
+		operation & op = it->second;
+		leveldb::Slice slice((char*)&key, key.size());
+		switch (op.type) {
+		case operation::DELETE:
+//			fprintf(l, "delete '%s' \n", key.tostring().c_str());
+			b.Delete(slice);
+			break;
+		case operation::PUT:
+//			fprintf(l, "flush '%s' -> '%s'\n", key.tostring().c_str(),
+//			        op.data.c_str());
+			b.Put(slice, op.data);
+			break;
+		}
+	}
+
+	leveldb::WriteOptions writeOptions;
+	writeOptions.sync = true;
+	
+	sync = false;
+
+	leveldb::Status status;
+	status = db->Write(writeOptions, &b);
+
+	batch.clear();
+
+//	if (!status.ok()) {
+//		fprintf(l, "failed\n");
+//	}
+
 	return status.ok();
+}
+
+bool FS::read(const block_key & key, std::string & value)
+{
+	return buckets[part(key)].read(key, value);
 }
 
 bool FS::write(batch_t & batch, bool sync)
@@ -157,42 +240,26 @@ bool FS::write(batch_t & batch, bool sync)
 	leveldb::DB * fb = 0;
 
 	for (int i = 0; i < batch.size(); ++i) {
-		leveldb::WriteBatch * b;
-		if (batch[i].key.type == 'd') {
-			db = meta;
-			b = &dbatch;
-		} else {
-			uint64_t part;
-			memcpy(&part, batch[i].key.inode, sizeof(part));
-			part = part % parts;
-			leveldb::DB * fbnew = data[part];
-			assert(db == 0 || fbnew == fb);
-			fb = fbnew;
-			b = &fbatch;
-		}
+		operation & op = batch[i];
+		bucket & b = buckets[part(op.key)];
+		b.add_op(op);
+		b.sync = sync;
+	}
 
-		leveldb::Slice slice((char*)&batch[i].key, batch[i].key.size());
-		switch (batch[i].type) {
-		case operation::DELETE:
-//			fprintf(l, "delete key '%s'\n", batch[i].key.tostring().c_str());
-			b->Delete(slice);
-			break;
-		case operation::PUT:
-//			fprintf(l, "put key '%s'\n", batch[i].key.tostring().c_str());
-			b->Put(slice, batch[i].data);
-			break;
+	bool ret = true;
+	for (int i = 0; i < parts+1; ++i) {
+		if (buckets[i].sync) {
+			ret &= buckets[i].flush();
 		}
 	}
 
-	leveldb::Status status;
-	if (db) {
-//		fprintf(l, "flushin metadata (%d)\n", (int)sync);
-		status = db->Write(writeOptions, &dbatch);
-	}
-	if (fb) {
-//		fprintf(l, "flushin data (%d)\n", (int)sync);
-		status = fb->Write(writeOptions, &fbatch);
-	}
-	
-	return status.ok();
+	//TODO: sync by size
+	return ret;
+}
+
+bool FS::sync(const boost::shared_ptr<entry> & e)
+{
+	block_key key(e->type, e->inode, 0);
+	bucket & b = buckets[part(key)];
+	return b.flush();
 }

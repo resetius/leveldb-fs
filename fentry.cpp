@@ -113,18 +113,6 @@ int fentry::read_buf(char * buf,
 			value.resize(blocksize);
 		}
 
-//		fprintf(l, " try key %s %d %d\n",
-//		        stringify(key).c_str(),
-//		        cur_offset, cur_block);
-
-//		if (!status) {
-//			fprintf(l, "cannot read key %s -> %s\n",
-//			        stringify(key).c_str(), status.ToString().c_str());
-//			break;
-//		}
-//		fprintf(l, "read key %s %d %d\n",
-//		        stringify(key).c_str(),
-//		        cur_offset, cur_block);
 		int upto = std::min(
 			buf + size - p,
 			(long)value.size());

@@ -439,12 +439,7 @@ static int ldbfs_fsync(const char *path, int isdatasync,
 
 	batch_t batch;
 
-	d->write(batch);
-	bool status = fs->write(batch, true); //TODO: check status
-
-	if (!status) {
-//		fprintf(l, "cannot sync %s %s\n",
-//		        path, status.ToString().c_str());
+	if (!fs->sync(d)) {
 		return -1;
 	}
 
