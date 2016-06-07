@@ -16,6 +16,7 @@
 
 struct dentry;
 struct entry;
+struct FS;
 
 typedef boost::unordered_map<std::string, boost::shared_ptr<entry> > entries_t;
 
@@ -116,6 +117,8 @@ struct operation
 typedef std::vector<operation> batch_t;
 
 struct entry: public boost::enable_shared_from_this<entry> {
+	FS * fs;
+	FILE * l;
 	boost::mutex mutex;
 	struct stat st;
 
@@ -125,7 +128,7 @@ struct entry: public boost::enable_shared_from_this<entry> {
 	std::string target_name; // for symlink
 	entries_t entries;
 
-	entry(const std::string & name);
+	entry(const std::string & name, FS * fs);
 	virtual ~entry() {}
 	virtual bool read();
 	virtual void write(batch_t & batch);
@@ -157,7 +160,7 @@ struct entry: public boost::enable_shared_from_this<entry> {
 };
 
 struct fentry: public entry {
-	fentry(const std::string & name);
+	fentry(const std::string & name, FS * fs);
 	
 	int write_buf(batch_t & batch,
 	              const char * buf,
@@ -173,10 +176,10 @@ struct fentry: public entry {
 };
 
 struct dentry: public entry {
-	dentry(const std::string & name);
+	dentry(const std::string & name, FS * fs);
 	void remove(batch_t & batch);
 };
 
 struct symlink_entry: public dentry {	
-	symlink_entry(const std::string & name);
+	symlink_entry(const std::string & name, FS * fs);
 };

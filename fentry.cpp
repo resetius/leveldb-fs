@@ -9,9 +9,6 @@
 #include "dentry.h"
 #include "fs.h"
 
-extern FILE * l;
-extern FS * fs;
-
 int fentry::write_buf(batch_t & batch,
                       const char * buf,
                       off_t size, size_t offset)

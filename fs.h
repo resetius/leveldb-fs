@@ -23,6 +23,7 @@ struct bucket
 
 struct FS
 {
+	FILE * l;
 	boost::mutex mutex;
 
 	int maxhandles;

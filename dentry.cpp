@@ -11,10 +11,7 @@
 #include "dentry.h"
 #include "fs.h"
 
-extern FILE * l;
-extern FS * fs;
-
-entry::entry(const std::string & name): name(name)
+entry::entry(const std::string & name, FS * fs): fs(fs), l(fs->l), name(name)
 {
 	time_t now = time(0);
 	memset(&st, 0, sizeof(st));
@@ -37,7 +34,7 @@ std::string entry::stringify(const std::string & key)
 	return r;
 }
 
-dentry::dentry(const std::string & name): entry(name)
+dentry::dentry(const std::string & name, FS * fs): entry(name, fs)
 {
 	st.st_mode = S_IFDIR | 0755;
 	st.st_nlink = 2;
@@ -48,13 +45,13 @@ dentry::dentry(const std::string & name): entry(name)
 	type = 'd';
 }
 
-fentry::fentry(const std::string & name): entry(name)
+fentry::fentry(const std::string & name, FS * fs): entry(name, fs)
 {
 	st.st_mode = S_IFREG | 0666;
 	type = 'f';
 }
 
-symlink_entry::symlink_entry(const std::string & name): dentry(name)
+symlink_entry::symlink_entry(const std::string & name, FS * fs): dentry(name, fs)
 {
 	st.st_mode = S_IFLNK | 0666;
 	type = 's';
@@ -102,13 +99,13 @@ bool entry::read()
 		entry * d = 0;
 		if (c.mode() & S_IFDIR) {
 			fprintf(l, "addin dir to '%s'\n", name.c_str());
-			d = new dentry(name);
+			d = new dentry(name, fs);
 		} else if (c.mode() & S_IFREG) {
 			fprintf(l, "addin file to '%s'\n", name.c_str());
-			d = new fentry(name);
+			d = new fentry(name, fs);
 		} else if (c.mode() & S_IFLNK) {
 			fprintf(l, "addin symlink to '%s'\n", name.c_str());
-			d = new symlink_entry(name);
+			d = new symlink_entry(name, fs);
 			d->target_name = c.target_name();
 		}
 

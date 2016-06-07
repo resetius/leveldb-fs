@@ -50,8 +50,8 @@
 // 3. on powerfailure repeat from 2
 
 
-extern FILE * l;
-extern FS * fs;
+static FILE * l;
+static FS * fs;
 
 // dentry -> [type,entry]
 // (f,entry) -> (inode,name)
@@ -76,6 +76,7 @@ static void * ldbfs_init(struct fuse_conn_info *conn) {
 	conn->max_write = 32*1024*1024;
 	conn->want |= FUSE_CAP_BIG_WRITES;
 	fs = new FS(dbpath, logpath);
+	l = fs->l;
 	fs->mount();
 }
 
@@ -148,7 +149,7 @@ static int ldbfs_mkdir(const char *p, mode_t mode)
 
 	fprintf(l, "parent: '%s'/'%s'\n", dst->name.c_str(), name.c_str());
 
-	boost::shared_ptr<entry> r(new dentry(name));
+	boost::shared_ptr<entry> r(new dentry(name, fs));
 	dst->add_child(r);
 
 	batch_t batch;
@@ -346,7 +347,7 @@ static int ldbfs_create(const char *p, mode_t mode,
 		return -1; // parent not exists: TODO: check error code;
 	}
 
-	boost::shared_ptr<entry> r(new fentry(name));
+	boost::shared_ptr<entry> r(new fentry(name, fs));
 	dst->add_child(r);
 
 	batch_t batch;
@@ -482,7 +483,7 @@ static int ldbfs_symlink(const char * src, const char * dst)
 		fprintf(l, "unknown parent '%s'\n", dst);
 		return -1;
 	}
-	d.reset(new symlink_entry(fs->filename(dst_path)));
+	d.reset(new symlink_entry(fs->filename(dst_path), fs));
 	d->target_name = fs->filename(src_path);
 	parent->add_child(d);
 

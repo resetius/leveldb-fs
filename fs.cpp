@@ -23,7 +23,6 @@ FS::FS(const std::string & dbpath, const std::string & log)
     handles.resize(maxhandles);
 
     buckets = new bucket[parts+1];
-	root.reset(new dentry(""));
 }
 
 void FS::open(bool create)
@@ -46,6 +45,8 @@ void FS::open(bool create)
 	    snprintf(buf, sizeof(buf), "/fentry-%04d", i);
 	    status = leveldb::DB::Open(options, dbroot + buf, &buckets[i+1].db);
     }
+
+    root.reset(new dentry("", this));
 }
 
 void FS::mount()
