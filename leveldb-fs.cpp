@@ -101,15 +101,13 @@ static int ldbfs_access(const char *path, int mask)
 	return 0;
 }
 
-static int ldbfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
+static int ldbfs_readdir(const char *, void *buf, fuse_fill_dir_t filler,
                          off_t offset, struct fuse_file_info *fi)
 {
 	(void) offset;
 	(void) fi;
 
-	fprintf(l, "readdir %s\n", path);
-
-	boost::shared_ptr<entry> d(fs->find(path+1));
+	boost::shared_ptr<entry> d(fs->find_handle(fi->fh));
 	
 	if (!d) {
 		return -ENOENT;
@@ -376,9 +374,8 @@ static int ldbfs_open(const char *p, struct fuse_file_info *fi)
 	return 0;
 }
 
-static int ldbfs_release(const char *path, struct fuse_file_info *fi)
+static int ldbfs_release(const char *, struct fuse_file_info *fi)
 {
-	fprintf(l, "release '%s' -> %lu\n", path, fi->fh);
 	boost::shared_ptr<entry> r(fs->find_handle(fi->fh));
 	if (!r) {
 		return -1;
@@ -391,11 +388,9 @@ static int ldbfs_release(const char *path, struct fuse_file_info *fi)
 }
 
 static int ldbfs_read(
-	const char *path, char *buf, size_t size, off_t offset,
+	const char *, char *buf, size_t size, off_t offset,
 	struct fuse_file_info *fi)
 {
-	fprintf(l, "read %s\n", path);
-
 	boost::shared_ptr<entry> d(fs->find_handle(fi->fh));
 	if (!d) {
 		return -1;
@@ -407,11 +402,9 @@ static int ldbfs_read(
 }
 
 static int ldbfs_write(
-	const char *path, const char *buf, size_t size,
+	const char *, const char *buf, size_t size,
 	off_t offset, struct fuse_file_info *fi)
 {
-//	fprintf(l, "write %s %lu %lu\n", path, size, offset);
-
 	boost::shared_ptr<entry> d(fs->find_handle(fi->fh));
 	if (!d) {
 		return -1;
@@ -433,10 +426,9 @@ static int ldbfs_write(
 	return write_size;
 }
 
-static int ldbfs_fsync(const char *path, int isdatasync,
+static int ldbfs_fsync(const char *, int isdatasync,
 		     struct fuse_file_info *fi)
 {
-	(void) path;
 	(void) isdatasync;
 
 	boost::shared_ptr<entry> d(fs->find_handle(fi->fh));
@@ -521,9 +513,11 @@ static struct fuse_operations ldbfs_oper;
 
 int main(int argc, char *argv[])
 {
+	memset(&ldbfs_oper, 0, sizeof(ldbfs_oper));
 	ldbfs_oper.getattr = ldbfs_getattr;
 	ldbfs_oper.readdir = ldbfs_readdir;
 	ldbfs_oper.open = ldbfs_open;
+	ldbfs_oper.opendir = ldbfs_open;
 	ldbfs_oper.read = ldbfs_read;
 	ldbfs_oper.write = ldbfs_write;
 	ldbfs_oper.access = ldbfs_access;
@@ -531,6 +525,7 @@ int main(int argc, char *argv[])
 	ldbfs_oper.create = ldbfs_create;
 	ldbfs_oper.mkdir = ldbfs_mkdir;
 	ldbfs_oper.release = ldbfs_release;
+	ldbfs_oper.releasedir = ldbfs_release;
 	ldbfs_oper.fsync = ldbfs_fsync;
 	ldbfs_oper.unlink = ldbfs_unlink;
 	ldbfs_oper.rmdir = ldbfs_rmdir;
@@ -541,6 +536,8 @@ int main(int argc, char *argv[])
 //	ldbfs_oper.chown = ldbfs_chown;
 
 	ldbfs_oper.init = ldbfs_init;
+
+	ldbfs_oper.flag_nopath = 1;
 
 	umask(0);
 
