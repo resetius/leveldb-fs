@@ -185,7 +185,9 @@ bool bucket::flush(uuid_t inode)
 		return true;
 	}
 
-//	fprintf(l, "flush %p\n", this);
+	fprintf(l, "flush %p\n", this);
+
+	std::set<block_key> remove;
 
 	for (std::map<block_key, operation>::iterator it = batch.begin();
 	     it != batch.end(); ++it)
@@ -202,11 +204,13 @@ bool bucket::flush(uuid_t inode)
 			b.Delete(slice);
 			break;
 		case operation::PUT:
-//			fprintf(l, "flush '%s' -> '%s'\n", key.tostring().c_str(),
-//			        op.data.c_str());
+			fprintf(l, "flush '%s' %lu bytes\n", key.tostring().c_str(),
+			        op.data.size());
 			b.Put(slice, op.data);
 			break;
 		}
+
+		remove.insert(it->first);
 	}
 
 	leveldb::WriteOptions writeOptions;
@@ -217,7 +221,12 @@ bool bucket::flush(uuid_t inode)
 	leveldb::Status status;
 	status = db->Write(writeOptions, &b);
 
-	batch.clear();
+	for (std::set<block_key>::iterator it = remove.begin(); it != remove.end(); ++it)
+	{
+		batch.erase(*it);
+	}
+
+//	batch.clear();
 
 //	if (!status.ok()) {
 //		fprintf(l, "failed\n");

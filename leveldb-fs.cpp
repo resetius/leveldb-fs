@@ -226,8 +226,15 @@ static int ldbfs_rmdir(const char *p)
 		return -1;
 	}
 
+	boost::shared_ptr<entry> parent = fs->find_parent(path);
+	if (!parent) {
+		return -1;
+	}
+	parent->remove_child(e);
+
 	batch_t batch;
 
+	parent->write(batch);
 	e->remove(batch);
 	bool status = fs->write(batch, true); //TODO: check status
 
