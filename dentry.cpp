@@ -21,6 +21,7 @@ entry::entry(const std::string & name): name(name)
 	st.st_atime = now;
 	st.st_ctime = now;
 	st.st_mtime = now;
+	st.st_blksize = 4096; // fixme
 	uuid_generate(inode);
 }
 
@@ -39,6 +40,8 @@ std::string entry::stringify(const std::string & key)
 dentry::dentry(const std::string & name): entry(name)
 {
 	st.st_mode = S_IFDIR | 0755;
+	st.st_nlink = 2;
+	st.st_size = 4096;
 	if (name.empty()) {
 		memset(inode, 0, sizeof(inode));
 	}
@@ -212,6 +215,7 @@ void entry::remove_child(const boost::shared_ptr<entry> & e)
 void entry::fillstat(struct stat * s)
 {
 	memcpy(s, &st, sizeof(st));
+	s->st_blocks = (s->st_size + 511) / 512;
 	memcpy(&s->st_ino, inode, sizeof(s->st_ino)); 
 }
 
