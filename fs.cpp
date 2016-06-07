@@ -3,9 +3,6 @@
 
 #include "fs.h"
 
-FILE * l = 0;
-FS * fs = 0;
-
 FS::FS(const std::string & dbpath, const std::string & log)
 {
 	maxhandles=1000000;
@@ -57,13 +54,12 @@ void FS::mount()
 
 void FS::mkfs()
 {
-	fs = this;
 	open(true);
 
 	if (!root->read()) {
 		batch_t batch;
 		root->write(batch);
-		fs->write(batch, true);
+		write(batch, true);
 	}
 }
 
@@ -186,7 +182,7 @@ bool bucket::flush(uuid_t inode)
 		return true;
 	}
 
-	fprintf(l, "flush %p\n", this);
+//	fprintf(l, "flush %p\n", this);
 
 	std::set<block_key> remove;
 
@@ -205,8 +201,8 @@ bool bucket::flush(uuid_t inode)
 			b.Delete(slice);
 			break;
 		case operation::PUT:
-			fprintf(l, "flush '%s' %lu bytes\n", key.tostring().c_str(),
-			        op.data.size());
+//			fprintf(l, "flush '%s' %lu bytes\n", key.tostring().c_str(),
+//			        op.data.size());
 			b.Put(slice, op.data);
 			break;
 		}
