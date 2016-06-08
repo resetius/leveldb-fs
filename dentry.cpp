@@ -11,7 +11,10 @@
 #include "dentry.h"
 #include "fs.h"
 
-entry::entry(const std::string & name, FS * fs): fs(fs), l(fs->l), name(name)
+entry::entry(const std::string & name, FS * fs):
+	fs(fs),
+	lg(fs->lg),
+	name(name)
 {
 	time_t now = time(0);
 	memset(&st, 0, sizeof(st));
@@ -72,11 +75,10 @@ bool entry::read()
 
 	proto::entry e;
 
-	fprintf(l, "read dentry '%s' -> %lu\n", name.c_str(), value.size());
+	BOOST_LOG(lg) << "read dentry " << name;
 
 	if (!e.ParseFromString(value)) {
-		// TODO: error;
-		fprintf(l, "cannot parse proto '%s'\n", name.c_str());
+		BOOST_LOG(lg) <<  "cannot parse proto " << name;
 		return false;
 	}
 
@@ -98,13 +100,13 @@ bool entry::read()
 		std::string name = c.name();
 		entry * d = 0;
 		if (c.mode() & S_IFDIR) {
-			fprintf(l, "addin dir to '%s'\n", name.c_str());
+			BOOST_LOG(lg) <<  "addin dir to " << name;
 			d = new dentry(name, fs);
 		} else if (c.mode() & S_IFREG) {
-			fprintf(l, "addin file to '%s'\n", name.c_str());
+			BOOST_LOG(lg) << "addin file to " << name;
 			d = new fentry(name, fs);
 		} else if (c.mode() & S_IFLNK) {
-			fprintf(l, "addin symlink to '%s'\n", name.c_str());
+			BOOST_LOG(lg) << "addin symlink to " << name;
 			d = new symlink_entry(name, fs);
 			d->target_name = c.target_name();
 		}
@@ -121,7 +123,7 @@ bool entry::read()
 			} else {
 				// TODO: error
 				// TODO: make broken entry
-				fprintf(l, "cannot read '%s'\n", name.c_str());
+				BOOST_LOG(lg) << "cannot read " << name;
 				return false;
 			}
 		}
@@ -171,7 +173,7 @@ void entry::write(batch_t & batch)
 
 boost::shared_ptr<entry> entry::find(const std::string & path)
 {
-	fprintf(l, "find '%s' in '%s'\n", path.c_str(), name.c_str());
+	BOOST_LOG(lg) << "find  " << path << " in " << name;
 	if (name == path) {
 		return shared_from_this();
 	}

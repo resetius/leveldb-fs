@@ -9,7 +9,7 @@ project(ldbfs)
 find_package(PkgConfig)
 
 set(Boost_USE_STATIC_LIBS ON)
-find_package(Boost 1.54.0 REQUIRED thread system log)
+find_package(Boost 1.54.0 REQUIRED system log_setup log filesystem thread)
 
 pkg_search_module(FUSE REQUIRED fuse)
 

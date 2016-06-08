@@ -12,6 +12,8 @@
 #include <boost/unordered_map.hpp>
 #include <boost/enable_shared_from_this.hpp>
 #include <boost/thread/mutex.hpp>
+#include <boost/log/common.hpp>
+
 #include <list>
 
 struct dentry;
@@ -118,7 +120,8 @@ typedef std::vector<operation> batch_t;
 
 struct entry: public boost::enable_shared_from_this<entry> {
 	FS * fs;
-	FILE * l;
+	boost::log::sources::severity_logger< >& lg;
+
 	boost::mutex mutex;
 	struct stat st;
 

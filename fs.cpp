@@ -1,19 +1,18 @@
+#include <boost/algorithm/string.hpp>
+#include <boost/log/utility/setup/console.hpp>
+#include <boost/log/utility/setup/file.hpp>
+#include <boost/log/utility/setup/common_attributes.hpp>
+
 #include "leveldb/filter_policy.h"
 #include "leveldb/env.h"
 
 #include "fs.h"
 
-FS::FS(const std::string & dbpath, const std::string & log)
+FS::FS(const std::string & dbpath): lg(global_lg::get())
 {
 	maxhandles=1000000;
 	blocksize=4*1024;
 	parts=4;
-
-	l = fopen(log.c_str(), "w");
-	setbuf(l, 0);
-
-
-	fprintf(l, "init\n");
 
 	dbroot = dbpath;
 
@@ -73,10 +72,10 @@ boost::shared_ptr<entry> FS::find_parent(const std::string & path)
 	boost::shared_ptr<entry> dst;
 	size_t pos = path.rfind("/");
 	if (pos == std::string::npos) {
-		fprintf(l, "root parent %s\n", path.c_str());
+		BOOST_LOG(lg) << "root parent " << path;
 		dst = root;
 	} else {
-		fprintf(l, "non root parent %s\n", path.c_str());
+		BOOST_LOG(lg) << "non root parent " << path;
 		dst = root->find(path.substr(0, pos));
 	}
 	return dst;

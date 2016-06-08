@@ -1,5 +1,11 @@
 #pragma once
 
+#include <boost/log/common.hpp>
+#include <boost/log/attributes.hpp>
+#include <boost/log/utility/setup/console.hpp>
+#include <boost/log/utility/setup/file.hpp>
+#include <boost/log/utility/setup/common_attributes.hpp>
+
 #include <fuse/fuse.h>
 
 #include <vector>
@@ -9,6 +15,8 @@
 #include <map>
 
 #include "dentry.h"
+
+BOOST_LOG_INLINE_GLOBAL_LOGGER_DEFAULT(global_lg, boost::log::sources::severity_logger< >);
 
 struct bucket
 {
@@ -23,7 +31,7 @@ struct bucket
 
 struct FS
 {
-	FILE * l;
+	boost::log::sources::severity_logger< >& lg;
 	boost::mutex mutex;
 
 	int maxhandles;
@@ -60,5 +68,5 @@ struct FS
 	bool sync(const boost::shared_ptr<entry> & e);
 
 
-	FS(const std::string & dbpath, const std::string & log);
+	FS(const std::string & dbpath);
 };

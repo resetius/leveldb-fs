@@ -1,4 +1,3 @@
-
 #define FUSE_USE_VERSION 26
 
 #ifdef HAVE_CONFIG_H
@@ -28,6 +27,10 @@
 #include <vector>
 #include <boost/unordered_map.hpp>
 #include <boost/unordered_set.hpp>
+#include <boost/algorithm/string.hpp>
+#include <boost/log/utility/setup/console.hpp>
+#include <boost/log/utility/setup/file.hpp>
+#include <boost/log/utility/setup/common_attributes.hpp>
 
 #include "dentry.h"
 #include "fs.h"
@@ -50,7 +53,6 @@
 // 3. on powerfailure repeat from 2
 
 
-static FILE * l;
 static FS * fs;
 
 // dentry -> [type,entry]
@@ -69,14 +71,13 @@ static FS * fs;
 
 
 std::string dbpath;
-std::string logpath;
+boost::log::sources::severity_logger< >& lg = global_lg::get();
 
 static void * ldbfs_init(struct fuse_conn_info *conn) {
 //	conn->direct_io = 1;
 	conn->max_write = 32*1024*1024;
 	conn->want |= FUSE_CAP_BIG_WRITES;
-	fs = new FS(dbpath, logpath);
-	l = fs->l;
+	fs = new FS(dbpath);
 	fs->mount();
 }
 
@@ -84,7 +85,7 @@ static int ldbfs_getattr(const char *p, struct stat *stbuf)
 {
 	int res = 0;
 
-	fprintf(l, "getattr %s\n", p);
+	BOOST_LOG(lg) << "getattr " << p;
     memset(stbuf, 0, sizeof(struct stat));
 
 	boost::shared_ptr<entry> e = fs->find(p+1);
@@ -132,10 +133,10 @@ static int ldbfs_mkdir(const char *p, mode_t mode)
 	std::string path(p+1);
 	std::string name;
 
-	fprintf(l, "mkdir %s\n", p);
+	BOOST_LOG(lg) << "mkdir " << p;
 
 	if (fs->find(path)) {
-		fprintf(l, "already exists %s\n", p);
+		BOOST_LOG(lg) << "already exists " << p;
 		return -1; // already exists. TODO: check error code
 	}
 
@@ -143,11 +144,11 @@ static int ldbfs_mkdir(const char *p, mode_t mode)
 	name = fs->filename(path);
 
 	if (!dst) {
-		fprintf(l, "cannot find dst %s\n", p);
+		BOOST_LOG(lg) << "cannot find dst " << p;
 		return -1; // parent not exists: TODO: check error code;
 	}
 
-	fprintf(l, "parent: '%s'/'%s'\n", dst->name.c_str(), name.c_str());
+	BOOST_LOG(lg) << "parent: " << dst->name << "/" << name;
 
 	boost::shared_ptr<entry> r(new dentry(name, fs));
 	dst->add_child(r);
@@ -163,7 +164,7 @@ static int ldbfs_mkdir(const char *p, mode_t mode)
 
 static int ldbfs_unlink(const char *p)
 {
-	fprintf(l, "unlink %s\n", p);
+	BOOST_LOG(lg) << "unlink " << p;
 	std::string path(p+1);
 
 	boost::shared_ptr<entry> e = fs->find(path);
@@ -174,7 +175,7 @@ static int ldbfs_unlink(const char *p)
 	boost::shared_ptr<entry> dst = fs->find_parent(path);
 
 	if (!dst) {
-		fprintf(l, "cannot find dst %s\n", p);
+		BOOST_LOG(lg) << "cannot find dst " << p;
 		return -1; // parent not exists: TODO: check error code;
 	}
 
@@ -212,7 +213,7 @@ static int ldbfs_unlink(const char *p)
 
 static int ldbfs_rmdir(const char *p)
 {
-	fprintf(l, "rmdir %s\n", p);
+	BOOST_LOG(lg) << "rmdir " << p;
 	std::string path(p+1);
 
 	boost::shared_ptr<entry> e = fs->find(path);
@@ -299,7 +300,7 @@ static int ldbfs_rename(const char *f, const char *t)
 
 static int ldbfs_truncate(const char *p, off_t size)
 {
-	fprintf(l, "truncate %s\n", p);
+	BOOST_LOG(lg) << "truncate " << p;
 	std::string path(p+1);
 
 	boost::shared_ptr<entry> e = fs->find(path);
@@ -343,7 +344,7 @@ static int ldbfs_create(const char *p, mode_t mode,
 	std::string name = fs->filename(path);
 
 	if (!dst) {
-		fprintf(l, "cannot find dst %s\n", p);
+		BOOST_LOG(lg) << "cannot find dst " << p;
 		return -1; // parent not exists: TODO: check error code;
 	}
 
@@ -468,19 +469,19 @@ static int ldbfs_symlink(const char * src, const char * dst)
 	boost::shared_ptr<entry> s(fs->find(src_path));
 	if (!s) {
 		// not exists
-		fprintf(l, "unknown source '%s'\n", src);
+		BOOST_LOG(lg) << "unknown source " << src;
 		return -1;
 	}
 	boost::shared_ptr<entry> d(fs->find(dst_path));
 	if (d) {
 		// already exists
-		fprintf(l, "already exists dest '%s'\n", dst);
+		BOOST_LOG(lg) << "already exists dest " << dst;
 		return -1;
 	}
 	boost::shared_ptr<entry> parent(fs->find_parent(dst_path));
 	if (!parent) {
 		// not exists
-		fprintf(l, "unknown parent '%s'\n", dst);
+		BOOST_LOG(lg) << "unknown parent " << dst;
 		return -1;
 	}
 	d.reset(new symlink_entry(fs->filename(dst_path), fs));
@@ -500,7 +501,7 @@ static int ldbfs_chown(const char * src, uid_t uid, gid_t gid)
 	boost::shared_ptr<entry> s(fs->find(path));
 	if (!s) {
 		// not exists
-		fprintf(l, "unknown source '%s'\n", src);
+		BOOST_LOG(lg) << "unknown source " << src;
 		return -1;
 	}
 
@@ -511,6 +512,8 @@ static int ldbfs_chown(const char * src, uid_t uid, gid_t gid)
 }
 
 static struct fuse_operations ldbfs_oper;
+
+namespace keywords = boost::log::keywords;
 
 int main(int argc, char *argv[])
 {
@@ -542,8 +545,51 @@ int main(int argc, char *argv[])
 
 	umask(0);
 
-	dbpath = "/var/tmp/testdb-fs";
-	logpath = "/var/tmp/fuselog.log";
+	char ** new_argv = (char**)calloc(argc+1, sizeof(char*));
+	int j = 0;
+	std::map<std::string, std::string> params;
 
-	return fuse_main(argc, argv, &ldbfs_oper, NULL);
+	for (int i = 0; i < argc; ++i) {
+		if (!strcmp(argv[i], "-p")) {
+			std::string info = argv[++i];
+			std::vector<std::string> infos;
+			boost::algorithm::split(infos, info,
+			                        boost::algorithm::is_any_of(","),
+			                        boost::algorithm::token_compress_on);
+			for (size_t i = 0; i < infos.size(); ++i) {
+				size_t p = infos[i].find("=");
+				if (p != std::string::npos) {
+					std::string k = infos[i].substr(0, p);
+					std::string v = infos[i].substr(p+1);
+					params[k] = v;
+				}
+			}
+		} else {
+			new_argv[j++] = argv[i];
+		}
+	}
+
+	std::map<std::string, std::string>::iterator it = params.find("db");
+	if (it == params.end()) {
+		return -1;
+	}
+
+	dbpath = it->second;
+
+	it = params.find("log");
+	if (it != params.end()) {
+		boost::log::add_file_log(
+			keywords::file_name = it->second,
+			keywords::format = "[%TimeStamp%]: %Message%",
+			keywords::auto_flush = true
+		);
+	} else {
+		boost::log::add_console_log();
+	}
+	boost::log::core::get()->add_global_attribute(
+		"TimeStamp", boost::log::attributes::local_clock());
+
+	BOOST_LOG(lg) << "using root: " << dbpath;
+	
+	return fuse_main(j, new_argv, &ldbfs_oper, NULL);
 }
