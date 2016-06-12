@@ -11,8 +11,8 @@
 FS::FS(const std::string & dbpath): lg(global_lg::get())
 {
 	maxhandles=1000000;
-	blocksize=4*1024;
-	parts=4;
+	blocksize=128*1024;
+	parts=2;
 
 	dbroot = dbpath;
 
@@ -25,7 +25,8 @@ void FS::open(bool create)
 {
 	leveldb::Options options;
     options.create_if_missing = create;
-    options.compression = leveldb::kNoCompression;
+//    options.compression = leveldb::kLZ4Compression;
+//    options.compression = leveldb::kNoCompression;
 //    options.write_buffer_size = 32*1024*1024;
 
     options.filter_policy=leveldb::NewBloomFilterPolicy2(16);
@@ -172,8 +173,12 @@ void bucket::add_op(const operation & op)
 	batch.insert(std::make_pair(op.key, op));
 }
 
+size_t global_written = 0;
+static boost::mutex global_written_mutex;
+
 bool bucket::flush(uuid_t inode)
 {
+	boost::log::sources::severity_logger< >& lg = global_lg::get();
 	leveldb::WriteBatch b;
 	boost::unique_lock<boost::mutex> scoped_lock(mutex);
 
@@ -181,6 +186,7 @@ bool bucket::flush(uuid_t inode)
 		return true;
 	}
 
+	size_t written_local = 0;
 //	fprintf(l, "flush %p\n", this);
 
 	std::set<block_key> remove;
@@ -202,6 +208,8 @@ bool bucket::flush(uuid_t inode)
 		case operation::PUT:
 //			fprintf(l, "flush '%s' %lu bytes\n", key.tostring().c_str(),
 //			        op.data.size());
+
+			written_local += op.data.size();
 			b.Put(slice, op.data);
 			break;
 		}
@@ -221,6 +229,16 @@ bool bucket::flush(uuid_t inode)
 	{
 		batch.erase(*it);
 	}
+
+	written += written_local;
+
+	{
+		boost::unique_lock<boost::mutex> scoped_lock(global_written_mutex);
+		global_written += written_local; // TODO: lock
+	}
+	BOOST_LOG(lg) << " written: " << written
+	              << " local: " << written_local
+	              << " total: " << global_written;
 
 //	batch.clear();
 

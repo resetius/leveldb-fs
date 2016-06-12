@@ -90,6 +90,7 @@ static int ldbfs_getattr(const char *p, struct stat *stbuf)
 
 	boost::shared_ptr<entry> e = fs->find(p+1);
 	if (!e) {
+		BOOST_LOG(lg) << "not found " << p;
 		res = -ENOENT;
 	} else {
 		e->fillstat(stbuf);
@@ -112,6 +113,7 @@ static int ldbfs_readdir(const char *, void *buf, fuse_fill_dir_t filler,
 	boost::shared_ptr<entry> d(fs->find_handle(fi->fh));
 	
 	if (!d) {
+		BOOST_LOG(lg) << "not found " << fi->fh;
 		return -ENOENT;
 	}
 
@@ -169,6 +171,7 @@ static int ldbfs_unlink(const char *p)
 
 	boost::shared_ptr<entry> e = fs->find(path);
 	if (!e) {
+		BOOST_LOG(lg) << "cannot unlink unexistent " << p;
 		return -ENOENT;
 	}
 
@@ -178,6 +181,7 @@ static int ldbfs_unlink(const char *p)
 		BOOST_LOG(lg) << "cannot find dst " << p;
 		return -1; // parent not exists: TODO: check error code;
 	}
+	BOOST_LOG(lg) << "unlinked " << e->tostring();
 
 	// lock dst
 
@@ -205,6 +209,7 @@ static int ldbfs_unlink(const char *p)
 	if (!status) {
 //		fprintf(l, "cannot remove %s %s\n",
 //		        p, status.ToString().c_str());
+        BOOST_LOG(lg) << "cannot remove " << p;
 		return -1;
 	}
 
@@ -218,16 +223,19 @@ static int ldbfs_rmdir(const char *p)
 
 	boost::shared_ptr<entry> e = fs->find(path);
 	if (!e) {
+		BOOST_LOG(lg) << "not found " << p;
 		return -ENOENT;
 	}
 
 //	boost::unique_lock<boost::mutex> scoped_lock(e->mutex);
 	if (!e->entries.empty()) {
+		BOOST_LOG(lg) << "non empty dir " << p;
 		return -1;
 	}
 
 	boost::shared_ptr<entry> parent = fs->find_parent(path);
 	if (!parent) {
+		BOOST_LOG(lg) << "not found " << path;
 		return -1;
 	}
 	parent->remove_child(e);
@@ -241,6 +249,7 @@ static int ldbfs_rmdir(const char *p)
 	if (!status) {
 //		fprintf(l, "cannot rmdir %s %s\n",
 //		        p, status.ToString().c_str());
+        BOOST_LOG(lg) << "cannot commit " << p;
 		return -1;
 	}
 
@@ -253,7 +262,9 @@ static int ldbfs_rename(const char *f, const char *t)
 	std::string to(t+1);
 
 	boost::shared_ptr<entry> src = fs->find(from);
+	BOOST_LOG(lg) << "rename " << f << " to " << t;
 	if (!src) {
+		BOOST_LOG(lg) << "not found " << f;
 		return -ENOENT;
 	}
 
@@ -266,11 +277,13 @@ static int ldbfs_rename(const char *f, const char *t)
 	std::string new_name = fs->filename(to);
 
 	if (!src_parent || !dst_parent) {
+		BOOST_LOG(lg) << "not found parent " << f;
 		return -1;
 	}
 
 	if (dst) {
 		if (dst == src) {
+			BOOST_LOG(lg) << "cannot self copy " << f;
 			return -1;
 		}
 		dst->remove(batch);
@@ -283,6 +296,8 @@ static int ldbfs_rename(const char *f, const char *t)
 	src->name = new_name;
 	dst_parent->add_child(src);
 
+	BOOST_LOG(lg) << "renamed " << src->tostring();
+
 	src_parent->write(batch);
 	dst_parent->write(batch);
 	bool status = fs->write(batch, true); //TODO: check status
@@ -291,6 +306,7 @@ static int ldbfs_rename(const char *f, const char *t)
 //		fprintf(l, "cannot rename %s->%s %s\n",
 //		        from.c_str(), to.c_str(),
 //		        status.ToString().c_str());
+        BOOST_LOG(lg) << "cannot commit " << f;
 		return -1;
 	}
 
@@ -305,6 +321,7 @@ static int ldbfs_truncate(const char *p, off_t size)
 
 	boost::shared_ptr<entry> e = fs->find(path);
 	if (!e) {
+		BOOST_LOG(lg) << "not found " << p;
 		return -ENOENT;
 	}
 
@@ -315,10 +332,13 @@ static int ldbfs_truncate(const char *p, off_t size)
 	e->truncate(batch, size);
 	bool status = fs->write(batch, true); //TODO: check status
 
+	BOOST_LOG(lg) << "truncated " << e->tostring();
+
 
 	if (!status) {
 //		fprintf(l, "cannot truncate %s %s\n",
 //		        p, status.ToString().c_str());
+        BOOST_LOG(lg) << "cannot commit " << p;
 		return -1;
 	}
 
@@ -335,8 +355,10 @@ static int ldbfs_create(const char *p, mode_t mode,
 {
 	std::string path = p+1;
 	boost::shared_ptr<entry> d(fs->find(path));
+	BOOST_LOG(lg) << "create " << p;
 	if (d) {
 		// already exists
+		BOOST_LOG(lg) << "already exists " << p;
 		return -1;
 	}
 		
@@ -357,7 +379,9 @@ static int ldbfs_create(const char *p, mode_t mode,
 	dst->write(batch);
 	fs->write(batch, true); // TODO: check status
 
-	fi->direct_io = 1;
+	BOOST_LOG(lg) << "created " << r->tostring();
+
+//	fi->direct_io = 1;
 
 	fs->allocate_handle(r, fi);
 
@@ -366,10 +390,13 @@ static int ldbfs_create(const char *p, mode_t mode,
 
 static int ldbfs_open(const char *p, struct fuse_file_info *fi)
 {
+	BOOST_LOG(lg) << "open " << p;
 	boost::shared_ptr<entry> d(fs->find(p+1));
 	if (!d) {
+		BOOST_LOG(lg) << "not found " << p;
 		return -1;
 	}
+	BOOST_LOG(lg) << "opened " << d->tostring();
 
 	fs->allocate_handle(d, fi);
 
@@ -380,8 +407,10 @@ static int ldbfs_release(const char *, struct fuse_file_info *fi)
 {
 	boost::shared_ptr<entry> r(fs->find_handle(fi->fh));
 	if (!r) {
+		BOOST_LOG(lg) << "cannot release " << fi->fh;
 		return -1;
 	}
+	BOOST_LOG(lg) << "release " << r->tostring();
 
 //	fi->direct_io = 1;
 	fs->release_handle(fi->fh);
@@ -395,6 +424,7 @@ static int ldbfs_read(
 {
 	boost::shared_ptr<entry> d(fs->find_handle(fi->fh));
 	if (!d) {
+		BOOST_LOG(lg) << "cannot read " << fi->fh;
 		return -1;
 	}
 
@@ -409,6 +439,7 @@ static int ldbfs_write(
 {
 	boost::shared_ptr<entry> d(fs->find_handle(fi->fh));
 	if (!d) {
+		BOOST_LOG(lg) << "cannot write " << fi->fh;
 		return -1;
 	}
 
@@ -422,6 +453,7 @@ static int ldbfs_write(
 	if (!status) {
 //		fprintf(l, "cannot write path %s %lu %lu %s\n",
 //		        path, size, offset, status.ToString().c_str());
+        BOOST_LOG(lg) << "cannot commit " << fi->fh;
 		return -1;
 	}
 
@@ -435,12 +467,14 @@ static int ldbfs_fsync(const char *, int isdatasync,
 
 	boost::shared_ptr<entry> d(fs->find_handle(fi->fh));
 	if (!d) {
+		BOOST_LOG(lg) << "cannot fsync " << fi->fh;
 		return -1;
 	}
 
 	batch_t batch;
 
 	if (!fs->sync(d)) {
+		BOOST_LOG(lg) << "cannot commit " << fi->fh;
 		return -1;
 	}
 
@@ -453,6 +487,7 @@ static int ldbfs_readlink(const char * link, char * target, size_t n)
 	boost::shared_ptr<entry> s(fs->find(path));
 	if (!s) {
 		// not exists
+		BOOST_LOG(lg) << "cannot readlink " << link;
 		return -1;
 	}
 

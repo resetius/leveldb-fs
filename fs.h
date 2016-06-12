@@ -20,6 +20,7 @@ BOOST_LOG_INLINE_GLOBAL_LOGGER_DEFAULT(global_lg, boost::log::sources::severity_
 
 struct bucket
 {
+	size_t written;
 	boost::mutex mutex;
 	leveldb::DB * db;
 	std::map<block_key, operation> batch;
@@ -27,6 +28,7 @@ struct bucket
 	bool read(const block_key & key, std::string & value);
 	void add_op(const operation & op);
 	bool flush(uuid_t inode);
+	bucket(): written(0) {}
 };
 
 struct FS

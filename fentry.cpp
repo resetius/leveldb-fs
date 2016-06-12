@@ -110,15 +110,17 @@ int fentry::read_buf(char * buf,
 			value.resize(blocksize);
 		}
 
+		int r = cur_offset % blocksize;
 		int upto = std::min(
 			buf + size - p,
-			(long)value.size());
+			(long)value.size() - r);
+
 		if (cur_offset + upto > st.st_size) {
 			upto = st.st_size - cur_offset;
 		}
 		
 		read_size += upto;
-		memcpy(p, value.c_str() + cur_offset % blocksize, upto);
+		memcpy(p, value.c_str() + r, upto);
 		p += upto;
 		cur_block ++;
 		cur_offset = cur_block * blocksize;

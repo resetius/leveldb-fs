@@ -160,6 +160,14 @@ struct entry: public boost::enable_shared_from_this<entry> {
 	void remove_child(const boost::shared_ptr<entry> & e);
 
 	static std::string stringify(const std::string & key);
+
+	std::string tostring() {
+		std::string r = name + ";";
+		char buf[1024];
+		uuid_unparse(inode, buf);
+		r += buf;
+		return r;
+	}
 };
 
 struct fentry: public entry {
