@@ -1,4 +1,6 @@
+#include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/algorithm/string.hpp>
+#include <boost/bind.hpp>
 #include <boost/log/utility/setup/console.hpp>
 #include <boost/log/utility/setup/file.hpp>
 #include <boost/log/utility/setup/common_attributes.hpp>
@@ -50,6 +52,8 @@ void FS::mount()
 {
 	open(false);
 	root->read();
+
+	flush_thread = boost::thread(boost::bind(&FS::flush_job, this));
 }
 
 void FS::mkfs()
@@ -289,3 +293,28 @@ bool FS::sync(const boost::shared_ptr<entry> & e)
 	bucket & b = buckets[part(key)];
 	return b.flush(e->inode);
 }
+
+void FS::flush_job()
+{
+	bool running = true; // TODO:
+	while (running) {
+		// TODO: commit interval
+		boost::this_thread::sleep(boost::posix_time::milliseconds(5000));
+		flush_buckets();
+	}
+}
+
+void FS::flush_buckets()
+{
+	for (int i = 0; i <= parts; ++i) {
+		bucket & b = buckets[i];
+		b.flush(0);
+	}
+}
+
+void FS::umount()
+{
+	flush_buckets();
+	// TODO: close all
+}
+

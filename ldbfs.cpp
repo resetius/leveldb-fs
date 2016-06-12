@@ -81,6 +81,11 @@ static void * ldbfs_init(struct fuse_conn_info *conn) {
 	fs->mount();
 }
 
+static void ldbfs_destroy(void *) {
+	fs->umount();
+	delete fs;
+}
+
 static int ldbfs_getattr(const char *p, struct stat *stbuf)
 {
 	int res = 0;
@@ -570,6 +575,7 @@ int main(int argc, char *argv[])
 	ldbfs_oper.rmdir = ldbfs_rmdir;
 	ldbfs_oper.rename = ldbfs_rename;
 	ldbfs_oper.utime = ldbfs_utime;
+	ldbfs_oper.destroy = ldbfs_destroy;
 //	ldbfs_oper.symlink = ldbfs_symlink;
 //	ldbfs_oper.readlink = ldbfs_readlink;
 //	ldbfs_oper.chown = ldbfs_chown;
@@ -628,3 +634,4 @@ int main(int argc, char *argv[])
 	
 	return fuse_main(j, new_argv, &ldbfs_oper, NULL);
 }
+

@@ -11,6 +11,7 @@
 #include <vector>
 #include <boost/unordered_set.hpp>
 #include <boost/shared_ptr.hpp>
+#include <boost/thread.hpp>
 #include <boost/thread/mutex.hpp>
 #include <map>
 
@@ -35,6 +36,7 @@ struct FS
 {
 	boost::log::sources::severity_logger< >& lg;
 	boost::mutex mutex;
+	boost::thread flush_thread;
 
 	int maxhandles;
 	int blocksize;
@@ -70,5 +72,10 @@ struct FS
 	bool sync(const boost::shared_ptr<entry> & e);
 
 
+	void umount();
+	void flush_buckets();
+	void flush_job();
+
 	FS(const std::string & dbpath);
 };
+
