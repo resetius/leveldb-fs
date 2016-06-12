@@ -7,20 +7,19 @@
 
 #include "leveldb/filter_policy.h"
 #include "leveldb/env.h"
+#include "messages.pb.h"
 
 #include "fs.h"
 
 FS::FS(const std::string & dbpath): lg(global_lg::get())
 {
 	maxhandles=1000000;
-	blocksize=128*1024;
-	parts=2;
+	blocksize=-1;
+	parts=-1;
 
 	dbroot = dbpath;
 
     handles.resize(maxhandles);
-
-    buckets = new bucket[parts+1];
 }
 
 void FS::open(bool create)
@@ -37,8 +36,50 @@ void FS::open(bool create)
     options.env=leveldb::Env::Default();
     
     leveldb::Status status;
-    status = leveldb::DB::Open(options, dbroot + "/dentry", &buckets[0].db);
-    
+
+	uuid_t metauuid;
+	memset(metauuid, 0, sizeof(metauuid));
+	block_key metakey('m', metauuid);
+
+	leveldb::DB * rootdb;
+    status = leveldb::DB::Open(options, dbroot + "/dentry", &rootdb);
+
+	// read meta
+	if (create) {
+		// write meta block
+		proto::fsmeta fsmeta;
+		assert(blocksize > 0);
+		assert(parts > 0);
+	    buckets = new bucket[parts+1];
+		fsmeta.set_blocksize(blocksize);
+		fsmeta.set_parts(parts);
+		std::string value;
+		fsmeta.SerializeToString(&value); // TODO: check error
+		buckets[0].db = rootdb;
+		buckets[0].add_op(operation(metakey, operation::PUT, value));
+		buckets[0].flush(0);
+	} else {
+		std::string value;
+		bucket tmp;
+		tmp.db = rootdb;
+		if (!tmp.read(metakey, value)) {
+			BOOST_LOG(lg) << "cannot read meta key " << metakey.tostring(); //TODO:
+			exit(-1);
+		}
+		proto::fsmeta fsmeta;
+		if (!fsmeta.ParseFromString(value)) { // TODO:
+			BOOST_LOG(lg) << "cannot parse meta";
+			exit(-1);
+		}
+		blocksize = fsmeta.blocksize();
+		parts = fsmeta.parts();
+	    buckets = new bucket[parts+1];
+		buckets[0].db = rootdb;
+	}
+
+	assert(blocksize > 0);
+	assert(parts > 0);
+   
     for (int i = 0; i < parts; ++i) {
 	    char buf[1024];
 	    snprintf(buf, sizeof(buf), "/fentry-%04d", i);
@@ -46,6 +87,8 @@ void FS::open(bool create)
     }
 
     root.reset(new dentry("", this));
+
+	BOOST_LOG(lg) << ((create) ? "create " : "mounted ") << "ldbfs, blocksize " << blocksize << ", parts " << parts;
 }
 
 void FS::mount()
@@ -56,8 +99,11 @@ void FS::mount()
 	flush_thread = boost::thread(boost::bind(&FS::flush_job, this));
 }
 
-void FS::mkfs()
+void FS::mkfs(int blocksize, int parts)
 {
+	this->blocksize = blocksize;
+	this->parts = parts;
+
 	open(true);
 
 	if (!root->read()) {
@@ -130,7 +176,7 @@ boost::shared_ptr<entry> FS::find_handle(uint64_t t)
 
 int FS::part(const block_key & key)
 {
-	if (key.type == 'd') {
+	if (key.type == 'd' || key.type == 'm') {
 		return 0;
 	} else {
 		return *((uint64_t*)key.inode)%parts+1;
@@ -180,7 +226,7 @@ void bucket::add_op(const operation & op)
 size_t global_written = 0;
 static boost::mutex global_written_mutex;
 
-bool bucket::flush(uuid_t inode)
+bool bucket::flush(unsigned char * inode)
 {
 	boost::log::sources::severity_logger< >& lg = global_lg::get();
 	leveldb::WriteBatch b;
@@ -200,7 +246,8 @@ bool bucket::flush(uuid_t inode)
 	{
 		const block_key & key = it->first;
 		operation & op = it->second;
-		if (!inode || memcmp(key.inode, inode, sizeof(key.inode)) != 0) {
+		if (inode && memcmp(key.inode, inode, sizeof(key.inode)) != 0) {
+//			BOOST_LOG(lg) << "skip key " << key.tostring();
 			continue;
 		}
 		leveldb::Slice slice((char*)&key, key.size());

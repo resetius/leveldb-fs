@@ -22,3 +22,9 @@ message entry {
 
   repeated child children = 100;
 }
+
+message fsmeta {
+  required uint32 blocksize = 1;
+  required uint32 parts = 2;
+}
+

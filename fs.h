@@ -28,7 +28,7 @@ struct bucket
 	bool sync;
 	bool read(const block_key & key, std::string & value);
 	void add_op(const operation & op);
-	bool flush(uuid_t inode);
+	bool flush(unsigned char * inode);
 	bucket(): written(0) {}
 };
 
@@ -64,7 +64,7 @@ struct FS
 	bool write(batch_t & batch, bool sync = false);
 	bool read(const block_key & key, std::string & value);
 
-	void mkfs();
+	void mkfs(int blocksize, int parts);
 	void mount();
 	void open(bool create);
 
