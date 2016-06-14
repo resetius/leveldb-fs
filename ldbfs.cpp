@@ -180,7 +180,7 @@ static int ldbfs_unlink(const char *p)
 		return -ENOENT;
 	}
 
-	boost::shared_ptr<entry> dst = fs->find_parent(path);
+	boost::shared_ptr<entry> dst = e->parent;
 
 	if (!dst) {
 		BOOST_LOG(lg) << "cannot find dst " << p;
@@ -238,7 +238,7 @@ static int ldbfs_rmdir(const char *p)
 		return -1;
 	}
 
-	boost::shared_ptr<entry> parent = fs->find_parent(path);
+	boost::shared_ptr<entry> parent = e->parent;
 	if (!parent) {
 		BOOST_LOG(lg) << "not found " << path;
 		return -1;
@@ -277,7 +277,7 @@ static int ldbfs_rename(const char *f, const char *t)
 
 	boost::shared_ptr<entry> dst = fs->find(to);
 
-	boost::shared_ptr<entry> src_parent = fs->find_parent(from);
+	boost::shared_ptr<entry> src_parent = src->parent;
 	boost::shared_ptr<entry> dst_parent = fs->find_parent(to);	
 	std::string new_name = fs->filename(to);
 
@@ -367,7 +367,7 @@ static int ldbfs_create(const char *p, mode_t mode,
 		return -1;
 	}
 		
-	boost::shared_ptr<entry> dst = fs->find_parent(path);
+	boost::shared_ptr<entry> dst = d->parent;
 	std::string name = fs->filename(path);
 
 	if (!dst) {
@@ -518,7 +518,7 @@ static int ldbfs_symlink(const char * src, const char * dst)
 		BOOST_LOG(lg) << "already exists dest " << dst;
 		return -1;
 	}
-	boost::shared_ptr<entry> parent(fs->find_parent(dst_path));
+	boost::shared_ptr<entry> parent = d->parent;
 	if (!parent) {
 		// not exists
 		BOOST_LOG(lg) << "unknown parent " << dst;

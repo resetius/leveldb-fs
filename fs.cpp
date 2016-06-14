@@ -123,10 +123,8 @@ boost::shared_ptr<entry> FS::find_parent(const std::string & path)
 	boost::shared_ptr<entry> dst;
 	size_t pos = path.rfind("/");
 	if (pos == std::string::npos) {
-		BOOST_LOG(lg) << "root parent " << path;
 		dst = root;
 	} else {
-		BOOST_LOG(lg) << "non root parent " << path;
 		dst = root->find(path.substr(0, pos));
 	}
 	return dst;

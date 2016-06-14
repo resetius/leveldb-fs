@@ -130,6 +130,7 @@ struct entry: public boost::enable_shared_from_this<entry> {
 	std::string name;
 	std::string target_name; // for symlink
 	entries_t entries;
+	boost::shared_ptr<entry> parent;
 
 	entry(const std::string & name, FS * fs);
 	virtual ~entry() {}

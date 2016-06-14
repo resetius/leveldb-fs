@@ -196,6 +196,7 @@ boost::shared_ptr<entry> entry::find(const std::string & path)
 void entry::add_child(const boost::shared_ptr<entry> & e)
 {
 	boost::unique_lock<boost::mutex> scoped_lock(mutex);
+	e->parent = shared_from_this();
 	entries[e->name] = e;
 }
 
