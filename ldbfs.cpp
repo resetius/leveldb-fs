@@ -366,8 +366,8 @@ static int ldbfs_create(const char *p, mode_t mode,
 		BOOST_LOG(lg) << "already exists " << p;
 		return -1;
 	}
-		
-	boost::shared_ptr<entry> dst = d->parent;
+
+	boost::shared_ptr<entry> dst = fs->find_parent(path);
 	std::string name = fs->filename(path);
 
 	if (!dst) {
@@ -518,7 +518,7 @@ static int ldbfs_symlink(const char * src, const char * dst)
 		BOOST_LOG(lg) << "already exists dest " << dst;
 		return -1;
 	}
-	boost::shared_ptr<entry> parent = d->parent;
+	boost::shared_ptr<entry> parent = fs->find_parent(dst_path);
 	if (!parent) {
 		// not exists
 		BOOST_LOG(lg) << "unknown parent " << dst;
