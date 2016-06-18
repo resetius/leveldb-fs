@@ -335,7 +335,8 @@ static int ldbfs_truncate(const char *p, off_t size)
 	batch_t batch;
 
 	e->truncate(batch, size);
-	bool status = fs->write(batch, true); //TODO: check status
+	// TODO: recovery?
+	bool status = fs->write(batch, false); //TODO: check status
 
 	BOOST_LOG(lg) << "truncated " << e->tostring();
 
