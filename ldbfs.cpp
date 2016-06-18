@@ -31,9 +31,12 @@
 #include <boost/log/utility/setup/console.hpp>
 #include <boost/log/utility/setup/file.hpp>
 #include <boost/log/utility/setup/common_attributes.hpp>
+#include <boost/log/trivial.hpp>
 
 #include "dentry.h"
 #include "fs.h"
+
+using namespace boost::log::trivial;
 
 // TODO: remove while writing?
 // remove algo proposal:
@@ -90,12 +93,12 @@ static int ldbfs_getattr(const char *p, struct stat *stbuf)
 {
 	int res = 0;
 
-	BOOST_LOG(lg) << "getattr " << p;
+	BOOST_LOG_SEV(lg, debug) << "getattr " << p;
     memset(stbuf, 0, sizeof(struct stat));
 
 	boost::shared_ptr<entry> e = fs->find(p+1);
 	if (!e) {
-		BOOST_LOG(lg) << "not found " << p;
+		BOOST_LOG_SEV(lg, error) << "not found " << p;
 		res = -ENOENT;
 	} else {
 		e->fillstat(stbuf);
@@ -413,10 +416,10 @@ static int ldbfs_release(const char *, struct fuse_file_info *fi)
 {
 	boost::shared_ptr<entry> r(fs->find_handle(fi->fh));
 	if (!r) {
-		BOOST_LOG(lg) << "cannot release " << fi->fh;
+		BOOST_LOG_SEV(lg, error) << "cannot release " << fi->fh;
 		return -1;
 	}
-	BOOST_LOG(lg) << "release " << r->tostring();
+	BOOST_LOG_SEV(lg, debug) << "release " << r->tostring();
 
 //	fi->direct_io = 1;
 	fs->release_handle(fi->fh);
@@ -558,6 +561,7 @@ namespace keywords = boost::log::keywords;
 
 int main(int argc, char *argv[])
 {
+	int severity = (int)boost::log::trivial::info;
 	memset(&ldbfs_oper, 0, sizeof(ldbfs_oper));
 	ldbfs_oper.getattr = ldbfs_getattr;
 	ldbfs_oper.readdir = ldbfs_readdir;
@@ -628,9 +632,16 @@ int main(int argc, char *argv[])
 	} else {
 		boost::log::add_console_log();
 	}
+	it = params.find("severity");
+	if (it != params.end()) {
+		severity = atoi(it->second.c_str());
+	}
 	boost::log::core::get()->add_global_attribute(
 		"TimeStamp", boost::log::attributes::local_clock());
-
+	boost::log::core::get()->set_filter
+    (
+        boost::log::trivial::severity >= severity
+    );
 	BOOST_LOG(lg) << "using root: " << dbpath;
 	
 	return fuse_main(j, new_argv, &ldbfs_oper, NULL);

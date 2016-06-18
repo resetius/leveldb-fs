@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <time.h>
 
+#include <boost/log/trivial.hpp>
+
 #include "messages.pb.h"
 
 #include "leveldb/db.h"
@@ -10,6 +12,8 @@
 
 #include "dentry.h"
 #include "fs.h"
+
+using namespace boost::log::trivial;
 
 entry::entry(const std::string & name, FS * fs):
 	fs(fs),
@@ -175,7 +179,7 @@ void entry::write(batch_t & batch)
 
 boost::shared_ptr<entry> entry::find(const std::string & path)
 {
-	BOOST_LOG(lg) << "find  " << path << " in " << name;
+	BOOST_LOG_SEV(lg, debug) << "find  " << path << " in " << name;
 	if (name == path) {
 		return shared_from_this();
 	}

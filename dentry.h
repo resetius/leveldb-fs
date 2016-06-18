@@ -125,6 +125,7 @@ struct entry: public boost::enable_shared_from_this<entry> {
 	boost::mutex mutex;
 	struct stat st;
 
+	// -> TODO: to separate struct (for hardlinks)
 	uuid_t inode;
 	char type;
 	std::string name;
