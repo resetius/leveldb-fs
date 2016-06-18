@@ -114,8 +114,10 @@ bool entry::read()
 		if (d) {
 			std::string inode = c.ino();
 			memcpy(d->inode, inode.c_str(), sizeof(d->inode)); //TODO: ugly
-			if (d->read()) {
-				entries[name] = boost::shared_ptr<entry>(d);
+			boost::shared_ptr<entry> child(d);
+			if (child->read()) {
+				child->parent = shared_from_this();
+				entries[name] = child;
 				//fprintf(l, "adding object to '%s' -> %s %lu\n",
 				//        this->name.c_str(),
 				//        stringify(d->key()).c_str(),
